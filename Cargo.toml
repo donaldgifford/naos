@@ -1,0 +1,11 @@
+[package]
+name = "naos"
+version = "0.1.0"
+edition = "2024"
+description = "A VMM for fast, isolated virtual machine lifecycle management"
+license = "Apache-2.0"
+repository = "https://github.com/yourusername/naos"
+keywords = ["vmm", "virtualization", "hypervisor"]
+categories = ["virtualization"]
+
+[dependencies]
