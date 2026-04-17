@@ -1,0 +1,20 @@
+[tools]
+rust = "latest"
+shellcheck = "latest"
+shfmt = "latest"
+
+
+# Repo utilities
+# Formatters and linters
+markdownlint-cli2 = "0.18.1"
+yamlfmt = "0.20.0"
+yamllint = "1.37.1"
+prettier = "3.7.4"
+"github:donaldgifford/makefmt" = "latest"
+checkmake = "latest"
+git-cliff = "latest"
+
+# tools
+yq = "4.48.1"
+jq = "latest"
+"github:donaldgifford/docz" = "latest"

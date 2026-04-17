@@ -1,0 +1,33 @@
+# naos-linux — KVM-based hypervisor for x86_64 Linux guests on Linux hosts.
+#
+# See ARCHITECTURE.md for the project ladder and DESIGN-naos-linux for the
+# implementation spec. No dependencies are declared yet — each is added as
+# the concrete code that uses it is written, per the first-principles
+# philosophy in ARCHITECTURE.md.
+
+[package]
+name = "naos-linux"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Minimum viable KVM-based hypervisor, Linux x86_64 backend"
+publish = false
+license = "Apache-2.0"
+repository = "https://github.com/yourusername/naos"
+keywords = ["vmm", "virtualization", "hypervisor"]
+categories = ["virtualization"]
+
+
+[dependencies]
+# Planned MVP dependencies (see DESIGN-naos-linux "Crate dependencies"):
+#   kvm-ioctls, kvm-bindings  — KVM API wrappers
+#   vm-memory                 — guest memory abstraction
+#   linux-loader              — vmlinux ELF parsing and loading
+#   vm-superio                — 16550 UART emulation
+#   vmm-sys-util              — Linux primitives (eventfd, etc.)
+#   anyhow                    — error propagation
+#   clap                      — argument parsing
+# None are added yet. Add each one at the moment the code that uses it lands.
+
+[lints]
+workspace = true

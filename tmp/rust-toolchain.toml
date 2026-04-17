@@ -1,0 +1,12 @@
+# Pin the Rust toolchain channel and ensure required components are installed
+# on first `cargo` invocation. This means every machine that builds naos uses
+# the same toolchain configuration without manual setup.
+#
+# We pin the channel (stable) rather than a specific version — naos tracks
+# current stable Rust. If a specific version becomes necessary (e.g. a regression
+# in a newer release), change `channel = "stable"` to `channel = "1.NN.N"` here.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "default"

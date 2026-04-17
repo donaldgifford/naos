@@ -1,0 +1,23 @@
+# Build output
+/target
+
+# Test artifacts (see DEVELOPMENT.md — test kernels are built locally, not committed)
+/testdata
+
+# Editor configs — we commit `.nvim.lua` deliberately; everything else stays local.
+/.vscode/
+/.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Rust backup files
+*.rs.bk
+
+# Direnv, if anyone uses it
+/.envrc.local

@@ -1,15 +1,3 @@
-# [package]
-# name = "naos"
-# version = "0.1.0"
-# edition = "2024"
-# description = "A VMM for fast, isolated virtual machine lifecycle management"
-# license = "Apache-2.0"
-# repository = "https://github.com/yourusername/naos"
-# keywords = ["vmm", "virtualization", "hypervisor"]
-# categories = ["virtualization"]
-#
-# [dependencies]
-
 # Workspace manifest for naos.
 #
 # See ARCHITECTURE.md for the project ladder. Additional member crates
@@ -17,10 +5,10 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/naos-linux", "crates/naos-macos"]
+members = ["crates/naos-linux"]
 
 [workspace.package]
-edition = "2024"
+edition = "2021"
 # Keep this loose — the rust-toolchain.toml file pins the actual version.
 rust-version = "1.75"
 

@@ -1,0 +1,27 @@
+# deny.toml
+[advisories]
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "CDLA-Permissive-2.0",
+]
+
+[bans]
+multiple-versions = "warn" # flag duplicate versions in the tree
+wildcards = "deny"         # no wildcard version specs
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
