@@ -100,6 +100,21 @@ impl Vmm {
         // create_vcpu takes the vCPU index (0 for the first and only vCPU).
         let vcpu = vm.create_vcpu(0).context("Failed to create vCPU")?;
 
+        // --- Step 9b: Seed the guest CPUID ---
+        // KVM gives a freshly created vCPU an *empty* CPUID table. The kernel
+        // reads CPUID during the very first instructions of boot — in
+        // common_startup_64 it reads leaf 0x80000001 to decide which EFER bits
+        // (NXE, etc.) to set, then issues `wrmsr` to EFER. With no CPUID, that
+        // wrmsr writes a value KVM rejects with #GP, which (before the kernel's
+        // real IDT exists) cascades into a triple fault — the guest halts via
+        // KVM_EXIT_SHUTDOWN before printing a single byte. Copying the host's
+        // KVM-supported CPUID into the vCPU is what every KVM VMM does here.
+        let kvm_cpuid = kvm
+            .get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .context("Failed to query KVM-supported CPUID")?;
+        vcpu.set_cpuid2(&kvm_cpuid)
+            .context("Failed to set guest CPUID")?;
+
         // Configure CPU registers: GDT, page tables, control registers,
         // segment registers, RIP, RSI, RFLAGS.
         boot::configure(&vcpu, &guest_mem, entry_addr.raw_value())?;
