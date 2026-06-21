@@ -61,7 +61,7 @@ code inside a hardware-isolated virtual machine. The relationship is:
 │  │  - VM file descriptors (guest containers)            ││
 │  │  - vCPU file descriptors (virtual processors)        ││
 │  │  - Memory slot mappings (guest ↔ host address space) ││
-│  │  - In-kernel device emulation (PIC, IOAPIC, PIT)    ││
+│  │  - In-kernel device emulation (PIC, IOAPIC, PIT)     ││
 │  │                                                      ││
 │  │  Executes guest code via VMLAUNCH/VMRESUME (Intel)   ││
 │  │  or VMRUN (AMD) — hardware-level isolation           ││
@@ -76,7 +76,7 @@ code inside a hardware-isolated virtual machine. The relationship is:
 │  │  1. Allocate guest memory (mmap)                     ││
 │  │  2. Load the kernel into guest memory                ││
 │  │  3. Configure vCPU registers for long mode entry     ││
-│  │  4. Run the vCPU (KVM_RUN ioctl in a loop)          ││
+│  │  4. Run the vCPU (KVM_RUN ioctl in a loop)           ││
 │  │  5. Handle VM exits (I/O to serial port)             ││
 │  │  6. Emulate devices (16550 UART → stdout)            ││
 │  └──────────────────────────────────────────────────────┘│
@@ -129,35 +129,35 @@ Guest Physical Address Space (256 MiB)
 
 0x0000_0000  ┌──────────────────────────────────────┐
              │  Real-mode IVT / BIOS data area      │ ← we don't use this,
-             │  (legacy, not relevant for 64-bit)    │   but avoid clobbering
+             │  (legacy, not relevant for 64-bit)   │   but avoid clobbering
 0x0000_0500  ├──────────────────────────────────────┤
              │  GDT (3 entries × 8 bytes = 24 bytes)│ ← our global descriptor table
 0x0000_0520  ├──────────────────────────────────────┤
-             │  (unused gap)                         │
+             │  (unused gap)                        │
 0x0000_1000  ├──────────────────────────────────────┤
-             │  PML4 (4096 bytes, page-aligned)      │ ← level 4 page table
+             │  PML4 (4096 bytes, page-aligned)     │ ← level 4 page table
 0x0000_2000  ├──────────────────────────────────────┤
-             │  PDPT (4096 bytes, page-aligned)      │ ← level 3 page table
+             │  PDPT (4096 bytes, page-aligned)     │ ← level 3 page table
 0x0000_3000  ├──────────────────────────────────────┤
-             │  PD   (4096 bytes, page-aligned)      │ ← level 2 page table (2 MiB pages)
+             │  PD   (4096 bytes, page-aligned)     │ ← level 2 page table (2 MiB pages)
 0x0000_4000  ├──────────────────────────────────────┤
-             │  (unused gap)                         │
+             │  (unused gap)                        │
 0x0000_7000  ├──────────────────────────────────────┤
-             │  Boot parameters / "zero page"        │ ← struct boot_params (4096 bytes)
-             │  (e820 map, cmdline ptr, etc.)         │
+             │  Boot parameters / "zero page"       │ ← struct boot_params (4096 bytes)
+             │  (e820 map, cmdline ptr, etc.)       │
 0x0000_8000  ├──────────────────────────────────────┤
-             │  (unused gap)                         │
+             │  (unused gap)                        │
 0x0002_0000  ├──────────────────────────────────────┤
-             │  Kernel command line string           │ ← "console=ttyS0 reboot=k ..."
-             │  (up to 4096 bytes, null-terminated)  │
+             │  Kernel command line string          │ ← "console=ttyS0 reboot=k ..."
+             │  (up to 4096 bytes, null-terminated) │
 0x0002_1000  ├──────────────────────────────────────┤
-             │  (unused gap)                         │
+             │  (unused gap)                        │
 0x0100_0000  ├──────────────────────────────────────┤  ← 16 MiB
-             │  Kernel (vmlinux ELF segments)        │ ← loaded by linux-loader at
-             │  .text, .rodata, .data, .bss, ...     │   the addresses the ELF specifies
-             │  ...                                  │   (typically starting around here)
+             │  Kernel (vmlinux ELF segments)       │ ← loaded by linux-loader at
+             │  .text, .rodata, .data, .bss, ...    │   the addresses the ELF specifies
+             │  ...                                 │   (typically starting around here)
              ├──────────────────────────────────────┤
-             │  (rest of RAM, unused for MVP)        │
+             │  (rest of RAM, unused for MVP)       │
 0x1000_0000  └──────────────────────────────────────┘  ← 256 MiB
 
 ```
@@ -220,7 +220,8 @@ The full `Cargo.toml` for `crates/naos-linux`:
 [package]
 name = "naos-linux"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 publish = false
 
 [dependencies]
@@ -228,30 +229,42 @@ publish = false
 # map to /dev/kvm ioctls. kvm-bindings provides the raw kernel structs
 # (kvm_regs, kvm_sregs, kvm_segment, kvm_userspace_memory_region, etc.)
 # generated via bindgen from linux/kvm.h.
-kvm-ioctls = "0.19"
-kvm-bindings = { version = "0.10", features = ["fam-wrappers"] }
+kvm-ioctls = "0.25"
+kvm-bindings = { version = "0.14", features = ["fam-wrappers"] }
 
 # Guest memory abstraction. GuestMemoryMmap gives us a typed, bounds-checked
 # view over an mmap'd region that we register with KVM as guest RAM.
-vm-memory = { version = "0.16", features = ["backend-mmap"] }
+#
+# Pinned to 0.17 to match the version linux-loader depends on. If these
+# diverge, two copies of vm-memory end up in the tree, GuestMemoryMmap
+# resolves to two distinct types, and linux-loader's `M: GuestMemory` bound
+# stops accepting our guest memory — you get cryptic "trait not satisfied" /
+# "mismatched types" errors that point back into vm-memory.
+vm-memory = { version = "0.17", features = ["backend-mmap"] }
 
 # Linux kernel loader. Parses vmlinux ELF binaries and loads their segments
 # into guest memory. Also provides the boot_params struct definition.
-linux-loader = { version = "0.12", features = ["elf", "bzimage"] }
+linux-loader = { version = "0.13", features = ["elf", "bzimage"] }
 
 # 16550 UART emulation. Pure-logic state machine that handles reads/writes
 # to the eight UART registers. We wire its output to stdout.
 vm-superio = "0.8"
 
-# Linux utility types. EventFd (used as the serial interrupt trigger) and
+# Linux utility types. EventFd (wrapped as the serial interrupt trigger) and
 # other small wrappers around Linux-specific primitives.
-vmm-sys-util = "0.12"
+vmm-sys-util = "0.15"
+
+# Raw libc bindings. We need exactly one symbol — EFD_NONBLOCK, the
+# eventfd(2) flag passed when creating the serial interrupt fd.
+libc = "0.2"
 
 # Error handling. anyhow gives us context-rich error chains that propagate
 # cleanly from any fallible operation to main's error handler.
 anyhow = "1"
 
 # CLI argument parsing. Three arguments, no subcommands, minimal setup.
+# The `derive` feature is mandatory — without it, clap exposes only its
+# runtime builder API and the #[derive(Parser)] macro does not exist.
 clap = { version = "4", features = ["derive"] }
 
 [lints]
@@ -294,7 +307,7 @@ process.
 Host process address space              Guest physical address space
 ┌─────────────────────────┐             ┌─────────────────────────┐
 │                         │             │                         │
-│  mmap'd region ─────────┼─────────────┼─► 0x0000_0000          │
+│  mmap'd region ─────────┼─────────────┼─► 0x0000_0000           │
 │  (256 MiB of anon mem)  │  KVM maps   │   Guest RAM             │
 │  host_addr: 0x7f...     │  these via  │   (256 MiB)             │
 │  length: 0x1000_0000    │  EPT / NPT  │                         │
@@ -338,12 +351,12 @@ kvm_userspace_memory_region {
 use anyhow::{Context, Result};
 use kvm_bindings::kvm_userspace_memory_region;
 use kvm_ioctls::VmFd;
-use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Build the guest's physical memory.
 ///
 /// Creates a single anonymous mmap region of `size_mib` MiB at guest
-/// physical address 0. Returns a GuestMemoryMmap that provides typed,
+/// physical address 0. Returns a `GuestMemoryMmap` that provides typed,
 /// bounds-checked access to the region.
 ///
 /// We use a single contiguous region with no gaps. Real VMMs often have
@@ -353,13 +366,17 @@ pub fn build(size_mib: u64) -> Result<GuestMemoryMmap> {
     let size_bytes = size_mib
         .checked_mul(1024 * 1024)
         .context("Memory size overflow")?;
+    // from_ranges wants a usize length. On 64-bit hosts this is a no-op; on a
+    // 32-bit host try_from rejects a guest larger than the host address space
+    // instead of silently truncating.
+    let size_bytes = usize::try_from(size_bytes).context("Memory size exceeds usize")?;
 
     // GuestMemoryMmap::from_ranges takes a slice of (GuestAddress, usize) pairs.
     // Each pair defines one region: starting guest physical address and size.
     // Internally, this calls mmap(2) with MAP_ANONYMOUS | MAP_PRIVATE to allocate
     // the backing memory. The kernel zero-fills it (MAP_ANONYMOUS guarantees this),
     // so the guest sees zeroed RAM — same as real hardware on power-on.
-    GuestMemoryMmap::from_ranges(&[(GuestAddress(0), size_bytes as usize)])
+    GuestMemoryMmap::from_ranges(&[(GuestAddress(0), size_bytes)])
         .context("Failed to create guest memory via mmap")
 }
 
@@ -375,8 +392,8 @@ pub fn build(size_mib: u64) -> Result<GuestMemoryMmap> {
 ///
 /// The `unsafe` here is because we're asserting to KVM that the memory
 /// region is valid and will remain valid for the lifetime of the VM.
-/// GuestMemoryMmap's mmap is anonymous and owned by our process, so this
-/// holds as long as we don't drop guest_mem before the VM.
+/// `GuestMemoryMmap`'s mmap is anonymous and owned by our process, so this
+/// holds as long as we don't drop `guest_mem` before the VM.
 pub fn register(vm: &VmFd, guest_mem: &GuestMemoryMmap) -> Result<()> {
     // We have exactly one region. Iterate over it to get the host address
     // and guest address, which we need for the KVM ioctl.
@@ -495,22 +512,21 @@ use std::fs::File;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use linux_loader::loader::elf::Elf as ElfLoader;
 use linux_loader::loader::KernelLoader;
+use linux_loader::loader::elf::Elf as ElfLoader;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 /// Load a vmlinux ELF binary into guest memory.
 ///
-/// Parses the ELF program headers, copies each PT_LOAD segment into guest
+/// Parses the ELF program headers, copies each `PT_LOAD` segment into guest
 /// memory at the physical addresses specified in the headers, and returns
-/// the kernel's entry point address (the ELF e_entry field).
+/// the kernel's entry point address (the ELF `e_entry` field).
 ///
 /// The kernel is loaded wherever the ELF says — we do not choose the
 /// address. A typical tinyconfig vmlinux loads at 0x1000000 (16 MiB),
 /// but this is determined by the kernel's linker script, not by us.
 pub fn load(guest_mem: &GuestMemoryMmap, kernel_path: &Path) -> Result<GuestAddress> {
-    let mut kernel_file =
-        File::open(kernel_path).context("Failed to open kernel file")?;
+    let mut kernel_file = File::open(kernel_path).context("Failed to open kernel file")?;
 
     // ElfLoader::load arguments:
     //   guest_mem     — where to copy segments into
@@ -708,8 +724,8 @@ const GDT_DATA: u64 = 0x00CF_9200_0000_FFFF;
 
 ### Part 3: page tables
 
-x86_64 uses 4-level page tables to translate virtual addresses to physical
-addresses. In long mode, paging is _mandatory_ — you cannot have CR0.PG=1
+x86*64 uses 4-level page tables to translate virtual addresses to physical
+addresses. In long mode, paging is \_mandatory* — you cannot have CR0.PG=1
 (paging enabled, required for long mode) without valid page tables.
 
 We build the simplest possible page tables: identity-mapped (virtual address =
@@ -738,20 +754,20 @@ Virtual address (48 bits used):
 │ table  │   │        │        │
 │(512 ent│   │        │        │
 │ at CR3)│   │        │        │
-│ [idx]──┼───┼►┌────────┐     │
-└────────┘   │ │ PDPT   │     │
-             │ │ table  │     │
-             │ │(512 ent│     │
-             │ │ [idx]──┼─────┼►┌────────┐
-             │ └────────┘     │ │ PD     │
-             │                │ │ table  │
-             │                │ │(512 ent│
-             │                │ │ [idx]──┼──► Physical page (2 MiB)
-             │                │ └────────┘    (when PS bit = 1)
-             │                │
-             │                │ If PS=0, walk continues to PT level
-             │                │ (we don't use this — 2 MiB pages only)
-             │                │
+│ [idx]──┼───┼─►┌────────┐     │
+└────────┘   │  │ PDPT   │     │
+             │  │ table  │     │
+             │  │(512 ent│     │
+             │  │ [idx]──┼─────┼►┌────────┐
+             │  └────────┘     │ │ PD     │
+             │                 │ │ table  │
+             │                 │ │(512 ent│
+             │                 │ │ [idx]──┼──► Physical page (2 MiB)
+             │                 │ └────────┘    (when PS bit = 1)
+             │                 │
+             │                 │ If PS=0, walk continues to PT level
+             │                 │ (we don't use this — 2 MiB pages only)
+             │                 │
 ```
 
 **With 2 MiB large pages (PS bit set in PD entry), we skip the PT level
@@ -806,11 +822,11 @@ Z."
 
 ```
 CR0 (Control Register 0):
-┌────┬──┬──┬──┬──┬──┬──┬──────────────────────────────┬──┐
+┌────┬──┬──┬──┬──┬──┬──┬───────────────────────────────┬──┐
 │ PG │  │  │  │  │NE│ET│              ...              │PE│
 │ b31│  │  │  │  │b5│b4│                               │b0│
-└──┬─┴──┴──┴──┴──┴─┬┴─┬┴──────────────────────────────┴─┬┘
-   │                │  │                                  │
+└──┬─┴──┴──┴──┴──┴─┬┴─┬┴───────────────────────────────┴─┬┘
+   │               │  │                                  │
    │ PG = 1: Enable paging (required for long mode)      │
    │ NE = 1: Numeric error reporting via #MF, not IRQ 13 │
    │ ET = 1: Extension type (hardwired to 1 on modern CPUs)
@@ -891,11 +907,9 @@ set to 0.
 // 4. CPU registers (control registers, segment registers, general registers)
 
 use anyhow::{Context, Result};
-use kvm_bindings::{kvm_regs, kvm_segment, kvm_sregs};
+use kvm_bindings::{kvm_regs, kvm_segment};
 use kvm_ioctls::VcpuFd;
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap,
-};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 // ---------------------------------------------------------------------------
 // Guest physical addresses. See "The guest physical memory map" in the
@@ -953,18 +967,18 @@ const PTE_PS: u64 = 1 << 7;
 // ---------------------------------------------------------------------------
 
 /// CR0 bits. Intel SDM Vol. 3A, Section 2.5.
-const CR0_PE: u64 = 1 << 0;   // Protection Enable
-const CR0_MP: u64 = 1 << 1;   // Monitor Coprocessor
-const CR0_ET: u64 = 1 << 4;   // Extension Type (hardwired to 1)
-const CR0_NE: u64 = 1 << 5;   // Numeric Error
-const CR0_PG: u64 = 1 << 31;  // Paging
+const CR0_PE: u64 = 1 << 0; // Protection Enable
+const CR0_MP: u64 = 1 << 1; // Monitor Coprocessor
+const CR0_ET: u64 = 1 << 4; // Extension Type (hardwired to 1)
+const CR0_NE: u64 = 1 << 5; // Numeric Error
+const CR0_PG: u64 = 1 << 31; // Paging
 
 /// CR4 bits. Intel SDM Vol. 3A, Section 2.5.
-const CR4_PAE: u64 = 1 << 5;  // Physical Address Extension
+const CR4_PAE: u64 = 1 << 5; // Physical Address Extension
 
 /// EFER bits. Intel SDM Vol. 3A, Section 2.2.1.
-const EFER_LME: u64 = 1 << 8;   // Long Mode Enable
-const EFER_LMA: u64 = 1 << 10;  // Long Mode Active
+const EFER_LME: u64 = 1 << 8; // Long Mode Enable
+const EFER_LMA: u64 = 1 << 10; // Long Mode Active
 
 // ---------------------------------------------------------------------------
 // The e820 memory map type for usable RAM.
@@ -976,11 +990,8 @@ const E820_RAM: u32 = 1;
 /// Write the kernel command line into guest memory.
 ///
 /// The cmdline is a null-terminated ASCII string. Its address is recorded
-/// in boot_params so the kernel can find it.
-pub fn write_cmdline(
-    guest_mem: &GuestMemoryMmap,
-    cmdline: &str,
-) -> Result<()> {
+/// in `boot_params` so the kernel can find it.
+pub fn write_cmdline(guest_mem: &GuestMemoryMmap, cmdline: &str) -> Result<()> {
     let cmdline_bytes = cmdline.as_bytes();
     guest_mem
         .write_slice(cmdline_bytes, GuestAddress(CMDLINE_ADDR))
@@ -992,25 +1003,42 @@ pub fn write_cmdline(
     Ok(())
 }
 
+/// Newtype wrapper that lets us write a `boot_params` into guest memory.
+///
+/// `GuestMemory::write_obj` requires its argument to implement vm-memory's
+/// `ByteValued` (a plain-old-data marker trait). linux-loader's `boot_params`
+/// is a `#[repr(C, packed)]` POD struct but does not implement `ByteValued`,
+/// and the orphan rule forbids us from implementing a foreign trait on a
+/// foreign type. Wrapping it in our own type lets us provide the impl. This is
+/// the same pattern Firecracker uses for its zero page.
+// The field is only ever read through the ByteValued impl (as raw bytes), never
+// by name, so the dead-code lint can't see the use. linux-loader silences the
+// same warning on its own ByteValued wrappers.
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct BootParamsWrapper(linux_loader::bootparam::boot_params);
+
+// SAFETY: boot_params is a #[repr(C, packed)] struct of integers and fixed-size
+// arrays — no pointers and no padding-dependent invariants — so every byte
+// pattern is a valid value and reading it as a raw byte slice is sound.
+unsafe impl ByteValued for BootParamsWrapper {}
+
 /// Build and write the boot parameters ("zero page") into guest memory.
 ///
 /// This provides the kernel with its memory map and command line pointer.
 /// Without this, the kernel has no idea how much RAM exists and cannot
 /// configure the serial console.
-pub fn write_boot_params(
-    guest_mem: &GuestMemoryMmap,
-    cmdline: &str,
-    mem_size: u64,
-) -> Result<()> {
+pub fn write_boot_params(guest_mem: &GuestMemoryMmap, cmdline: &str, mem_size: u64) -> Result<()> {
     // Start with a zeroed boot_params struct. linux-loader provides the
     // Rust definition of this struct, matching the kernel's bootparam.h.
-    let mut params: linux_loader::bootparam::boot_params =
-        Default::default();
+    let mut params = linux_loader::bootparam::boot_params::default();
 
     // --- Command line ---
-    // cmd_line_ptr is a u32 physical address. CMDLINE_ADDR is well below 4 GiB.
-    params.hdr.cmd_line_ptr = CMDLINE_ADDR as u32;
-    params.hdr.cmdline_size = cmdline.len() as u32;
+    // cmd_line_ptr is a u32 physical address. CMDLINE_ADDR is well below 4 GiB,
+    // and a kernel command line never approaches 4 GiB, so both conversions are
+    // exact — try_from documents that and would surface a bug if it ever weren't.
+    params.hdr.cmd_line_ptr = u32::try_from(CMDLINE_ADDR).expect("CMDLINE_ADDR fits in u32");
+    params.hdr.cmdline_size = u32::try_from(cmdline.len()).expect("cmdline length fits in u32");
 
     // --- Boot protocol ---
     // type_of_loader: non-zero means "a bootloader loaded us." The kernel
@@ -1028,8 +1056,9 @@ pub fn write_boot_params(
     params.e820_entries = 1;
 
     // Write the completed boot_params to guest memory at BOOT_PARAMS_ADDR.
+    // Wrap it so it satisfies write_obj's ByteValued bound (see BootParamsWrapper).
     guest_mem
-        .write_obj(params, GuestAddress(BOOT_PARAMS_ADDR))
+        .write_obj(BootParamsWrapper(params), GuestAddress(BOOT_PARAMS_ADDR))
         .context("Failed to write boot_params to guest memory")?;
 
     Ok(())
@@ -1037,7 +1066,7 @@ pub fn write_boot_params(
 
 /// Write the GDT into guest memory.
 ///
-/// Three entries (null, code, data) = 24 bytes at GDT_ADDR.
+/// Three entries (null, code, data) = 24 bytes at `GDT_ADDR`.
 fn write_gdt(guest_mem: &GuestMemoryMmap) -> Result<()> {
     let gdt_entries: [u64; 3] = [GDT_NULL, GDT_CODE, GDT_DATA];
 
@@ -1059,18 +1088,12 @@ fn write_gdt(guest_mem: &GuestMemoryMmap) -> Result<()> {
 fn write_page_tables(guest_mem: &GuestMemoryMmap) -> Result<()> {
     // PML4[0] → points to PDPT
     guest_mem
-        .write_obj(
-            PDPT_ADDR | PTE_PRESENT | PTE_RW,
-            GuestAddress(PML4_ADDR),
-        )
+        .write_obj(PDPT_ADDR | PTE_PRESENT | PTE_RW, GuestAddress(PML4_ADDR))
         .context("Failed to write PML4 entry")?;
 
     // PDPT[0] → points to PD
     guest_mem
-        .write_obj(
-            PD_ADDR | PTE_PRESENT | PTE_RW,
-            GuestAddress(PDPT_ADDR),
-        )
+        .write_obj(PD_ADDR | PTE_PRESENT | PTE_RW, GuestAddress(PDPT_ADDR))
         .context("Failed to write PDPT entry")?;
 
     // PD[0..511] → identity-mapped 2 MiB pages
@@ -1089,9 +1112,9 @@ fn write_page_tables(guest_mem: &GuestMemoryMmap) -> Result<()> {
     Ok(())
 }
 
-/// Helper: build a kvm_segment struct from a GDT descriptor and selector.
+/// Helper: build a `kvm_segment` struct from a GDT descriptor and selector.
 ///
-/// KVM's kvm_segment has many fields that could be derived from the raw
+/// KVM's `kvm_segment` has many fields that could be derived from the raw
 /// GDT entry, but KVM wants them spelled out explicitly in the struct.
 /// This helper constructs the struct for our two segment types.
 fn make_code_segment() -> kvm_segment {
@@ -1104,11 +1127,11 @@ fn make_code_segment() -> kvm_segment {
         // the CPU on first use, but KVM expects us to pre-set it.
         type_: 0xB,
         present: 1,
-        dpl: 0,       // Ring 0 (kernel)
-        db: 0,        // Must be 0 for 64-bit code (Intel SDM Vol. 3A, 5.2.1)
-        s: 1,         // Code/data segment (not system)
-        l: 1,         // 64-bit code segment
-        g: 1,         // 4 KiB granularity
+        dpl: 0, // Ring 0 (kernel)
+        db: 0,  // Must be 0 for 64-bit code (Intel SDM Vol. 3A, 5.2.1)
+        s: 1,   // Code/data segment (not system)
+        l: 1,   // 64-bit code segment
+        g: 1,   // 4 KiB granularity
         avl: 0,
         unusable: 0,
         padding: 0,
@@ -1124,9 +1147,9 @@ fn make_data_segment() -> kvm_segment {
         type_: 0x3,
         present: 1,
         dpl: 0,
-        db: 1,        // 32-bit (conventional for data segments in long mode)
+        db: 1, // 32-bit (conventional for data segments in long mode)
         s: 1,
-        l: 0,         // L bit only applies to code segments
+        l: 0, // L bit only applies to code segments
         g: 1,
         avl: 0,
         unusable: 0,
@@ -1145,12 +1168,8 @@ fn make_data_segment() -> kvm_segment {
 /// After this, the vCPU is ready to execute the first instruction of the
 /// kernel in 64-bit mode. The kernel will set up its own GDT, page tables,
 /// and stack almost immediately — our setup just needs to be valid long
-/// enough for the kernel's startup_64 code to take over.
-pub fn configure(
-    vcpu: &VcpuFd,
-    guest_mem: &GuestMemoryMmap,
-    entry_addr: u64,
-) -> Result<()> {
+/// enough for the kernel's `startup_64` code to take over.
+pub fn configure(vcpu: &VcpuFd, guest_mem: &GuestMemoryMmap, entry_addr: u64) -> Result<()> {
     // --- Step 1: Write structures into guest memory ---
 
     write_gdt(guest_mem)?;
@@ -1276,6 +1295,28 @@ PIO is a legacy x86 mechanism that doesn't exist on ARM. This is one of the
 reasons the naos-macos (aarch64) serial implementation will differ — it'll use
 MMIO instead.
 
+### Wiring vm-superio's Serial to an EventFd
+
+`vm-superio`'s `Serial` is generic over three type parameters:
+`Serial<T: Trigger, EV: SerialEvents, W: Write>` — an interrupt trigger, an
+events hook, and an output sink. Two of them need adapting:
+
+- **The trigger.** `Serial` raises an interrupt by calling `Trigger::trigger`.
+  The natural trigger is a `vmm-sys-util` `EventFd`, but `EventFd` does not
+  implement `vm_superio::Trigger` — both are foreign types, so the orphan rule
+  forbids a direct impl. We define a one-field newtype, `EventFdTrigger`, and
+  implement `Trigger` on it (plus `Deref` to the inner `EventFd` for
+  convenience). This is the canonical rust-vmm pattern; Firecracker ships the
+  same wrapper. We never actually pull the trigger in the MVP, but the type has
+  to be there to satisfy the bound.
+- **The events hook.** We don't track per-byte serial events, so we use
+  vm-superio's built-in no-op type, `NoEvents`. `Serial::new(trigger, out)`
+  selects it automatically, so the concrete type is
+  `Serial<EventFdTrigger, NoEvents, Stdout>`.
+
+That three-parameter type is what threads through `serial.rs`, `vcpu.rs`, and
+`vmm.rs` wherever a `Serial` is named.
+
 ### The code
 
 ```rust
@@ -1294,9 +1335,45 @@ MMIO instead.
 // which is deferred until we have a second I/O source that forces one.
 
 use std::io::{self, Stdout, Write};
+use std::ops::Deref;
 
-use vm_superio::Serial;
+use vm_superio::Trigger;
+use vm_superio::serial::{NoEvents, Serial};
 use vmm_sys_util::eventfd::EventFd;
+
+/// Adapts vmm-sys-util's `EventFd` to vm-superio's `Trigger` trait.
+///
+/// `vm-superio`'s `Serial` requires a `Trigger` it can pulse to raise an
+/// interrupt. `EventFd` does not implement `Trigger` directly — both are
+/// foreign types, so the orphan rule forbids a direct impl — so we wrap it.
+/// This is the canonical rust-vmm pattern (Firecracker carries the same
+/// wrapper). For the MVP we never actually pull the trigger, because we
+/// don't deliver serial interrupts to the guest; the wrapper exists only to
+/// satisfy the type bound.
+pub struct EventFdTrigger(EventFd);
+
+impl Trigger for EventFdTrigger {
+    type E = io::Error;
+
+    fn trigger(&self) -> io::Result<()> {
+        self.0.write(1)
+    }
+}
+
+impl Deref for EventFdTrigger {
+    type Target = EventFd;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl EventFdTrigger {
+    /// Create an interrupt `EventFd` with the given `eventfd(2)` flags.
+    pub fn new(flag: i32) -> io::Result<Self> {
+        Ok(EventFdTrigger(EventFd::new(flag)?))
+    }
+}
 
 /// The base I/O port for COM1. Ports 0x3F8 through 0x3FF are the eight
 /// registers of the first serial port.
@@ -1307,22 +1384,23 @@ pub const COM1_PORT_COUNT: u16 = 8;
 
 /// Check whether an I/O port is in the COM1 serial range.
 pub fn is_serial_port(port: u16) -> bool {
-    port >= COM1_PORT_BASE && port < COM1_PORT_BASE + COM1_PORT_COUNT
+    (COM1_PORT_BASE..COM1_PORT_BASE + COM1_PORT_COUNT).contains(&port)
 }
 
 /// Create a new serial device with stdout as the output sink.
 ///
-/// The EventFd is the interrupt trigger — when the serial device wants to
+/// The `EventFd` is the interrupt trigger — when the serial device wants to
 /// raise an interrupt (e.g., "received a byte"), it writes to this fd.
 /// For the MVP, we never poll this fd because we don't deliver serial
 /// interrupts to the guest. The fd exists because vm-superio's Serial
 /// requires a Trigger, but it's effectively unused.
-pub fn create() -> io::Result<Serial<EventFd, Stdout>> {
+pub fn create() -> io::Result<Serial<EventFdTrigger, NoEvents, Stdout>> {
     // EFD_NONBLOCK: reads from the eventfd return immediately with EAGAIN
     // instead of blocking. We never read it, but nonblocking is safer.
-    let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK)?;
 
+    // Serial::new wires the trigger to a NoEvents (no-op) event handler and
+    // our stdout sink. The NoEvents type parameter is inferred from this call.
     Ok(Serial::new(interrupt_evt, io::stdout()))
 }
 
@@ -1331,13 +1409,13 @@ pub fn create() -> io::Result<Serial<EventFd, Stdout>> {
 /// Called from the vCPU run loop when the guest executes an `out`
 /// instruction to a port in the COM1 range. The `data` slice contains
 /// the byte(s) being written.
-pub fn handle_write(serial: &mut Serial<EventFd, Stdout>, port: u16, data: &[u8]) {
-    let offset = port - COM1_PORT_BASE;
+pub fn handle_write(serial: &mut Serial<EventFdTrigger, NoEvents, Stdout>, port: u16, data: &[u8]) {
+    let offset = u8::try_from(port - COM1_PORT_BASE).expect("serial offset is within COM1 range");
     for &byte in data {
         // serial.write() handles the UART register logic: if offset is 0
         // (THR), it writes the byte to our stdout sink. If offset is
         // something else (IER, FCR, LCR, MCR), it updates internal state.
-        let _ = serial.write(offset as u8, byte);
+        let _ = serial.write(offset, byte);
     }
     // Flush stdout so characters appear immediately rather than being
     // buffered. The kernel often writes one character at a time during
@@ -1350,14 +1428,18 @@ pub fn handle_write(serial: &mut Serial<EventFd, Stdout>, port: u16, data: &[u8]
 /// Called from the vCPU run loop when the guest executes an `in`
 /// instruction from a port in the COM1 range. We fill `data` with
 /// the value the UART register should return.
-pub fn handle_read(serial: &mut Serial<EventFd, Stdout>, port: u16, data: &mut [u8]) {
-    let offset = port - COM1_PORT_BASE;
+pub fn handle_read(
+    serial: &mut Serial<EventFdTrigger, NoEvents, Stdout>,
+    port: u16,
+    data: &mut [u8],
+) {
+    let offset = u8::try_from(port - COM1_PORT_BASE).expect("serial offset is within COM1 range");
     for byte in data.iter_mut() {
         // serial.read() returns the current value of the addressed register.
         // Most importantly, LSR (offset 5) returns the line status with the
         // "transmitter empty" and "transmitter holding register empty" bits
         // set, telling the kernel it can send another byte immediately.
-        *byte = serial.read(offset as u8);
+        *byte = serial.read(offset);
     }
 }
 ```
@@ -1373,7 +1455,7 @@ This is the heartbeat of any KVM-based VMM. The cycle is:
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
-│  ┌────────────┐   KVM_RUN ioctl   ┌──────────────────┐  │
+│  ┌────────────┐   KVM_RUN ioctl    ┌──────────────────┐  │
 │  │            │ ─────────────────► │                  │  │
 │  │   naos     │                    │   Guest kernel   │  │
 │  │ (userspace)│ ◄───────────────── │  (hardware VM)   │  │
@@ -1438,19 +1520,22 @@ For our MVP, the only expected vmexits are:
 
 use std::io::Stdout;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use kvm_ioctls::VcpuFd;
-use vm_superio::Serial;
-use vmm_sys_util::eventfd::EventFd;
+use vm_superio::serial::{NoEvents, Serial};
 
 use crate::serial;
+use crate::serial::EventFdTrigger;
 
 /// Run the vCPU until the guest halts or an unhandled exit occurs.
 ///
 /// This function does not return until the VM is done. On success (guest
 /// executed HLT), it returns Ok(()). On unexpected exits, it returns an
 /// error describing the exit reason.
-pub fn run(vcpu: &VcpuFd, serial_dev: &mut Serial<EventFd, Stdout>) -> Result<()> {
+pub fn run(
+    vcpu: &mut VcpuFd,
+    serial_dev: &mut Serial<EventFdTrigger, NoEvents, Stdout>,
+) -> Result<()> {
     loop {
         // KVM_RUN: enter the guest. This blocks until a vmexit occurs.
         // The guest could run for microseconds or milliseconds depending
@@ -1483,17 +1568,11 @@ pub fn run(vcpu: &VcpuFd, serial_dev: &mut Serial<EventFd, Stdout>) -> Result<()
                 }
             }
 
-            // --- Guest halted ---
-            // The kernel executed HLT. After a panic with panic=1 on the
-            // cmdline, the kernel enters an infinite HLT loop. This is
-            // our clean exit signal.
-            kvm_ioctls::VcpuExit::Hlt => {
-                break;
-            }
-
-            // --- Shutdown ---
-            // Triple fault or ACPI shutdown. Also a clean exit for us.
-            kvm_ioctls::VcpuExit::Shutdown => {
+            // --- Guest halted or shut down ---
+            // Hlt: the kernel executed HLT. After a panic with panic=1 on the
+            // cmdline it spins in an infinite HLT loop — our clean exit signal.
+            // Shutdown: triple fault or ACPI shutdown, also a clean exit for us.
+            kvm_ioctls::VcpuExit::Hlt | kvm_ioctls::VcpuExit::Shutdown => {
                 break;
             }
 
@@ -1501,7 +1580,7 @@ pub fn run(vcpu: &VcpuFd, serial_dev: &mut Serial<EventFd, Stdout>) -> Result<()
             // Any vmexit we don't handle is a bug. Log the variant and
             // bail so we can diagnose what the guest was trying to do.
             exit => {
-                bail!("Unexpected vCPU exit: {:?}", exit);
+                bail!("Unexpected vCPU exit: {exit:?}");
             }
         }
     }
@@ -1509,6 +1588,10 @@ pub fn run(vcpu: &VcpuFd, serial_dev: &mut Serial<EventFd, Stdout>) -> Result<()
     Ok(())
 }
 ```
+
+> **Version note (kvm-ioctls 0.25):** `VcpuFd::run` takes `&mut self` in current
+> kvm-ioctls; older releases took `&self`. That's why `run` here threads a
+> `&mut VcpuFd` and `Vmm::run` calls it as `vcpu::run(&mut self.vcpu, …)`.
 
 ---
 
@@ -1543,16 +1626,16 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use kvm_ioctls::{Kvm, VcpuFd, VmFd};
-use vm_memory::GuestMemoryMmap;
-use vm_superio::Serial;
-use vmm_sys_util::eventfd::EventFd;
+use vm_memory::{Address, GuestMemoryMmap};
+use vm_superio::serial::{NoEvents, Serial};
 
+use crate::serial::EventFdTrigger;
 use crate::{boot, kernel, memory, serial, vcpu};
 
 /// The Vmm struct owns all resources for a single virtual machine.
 ///
-/// Ownership is important: the VmFd must outlive the VcpuFd (KVM enforces
-/// this at the kernel level), and the GuestMemoryMmap must outlive the VmFd
+/// Ownership is important: the `VmFd` must outlive the `VcpuFd` (KVM enforces
+/// this at the kernel level), and the `GuestMemoryMmap` must outlive the `VmFd`
 /// (because KVM holds a reference to our mmap'd memory). Rust's ownership
 /// model enforces this naturally — fields are dropped in declaration order
 /// (last declared, first dropped), so we declare them in dependency order.
@@ -1571,7 +1654,7 @@ pub struct Vmm {
     vcpu: VcpuFd,
 
     // The serial device. Used in the run loop to handle I/O exits.
-    serial: Serial<EventFd, Stdout>,
+    serial: Serial<EventFdTrigger, NoEvents, Stdout>,
 }
 
 impl Vmm {
@@ -1627,8 +1710,7 @@ impl Vmm {
         boot::write_boot_params(&guest_mem, cmdline, mem_bytes)?;
 
         // --- Step 8: Create the serial device ---
-        let serial_dev = serial::create()
-            .context("Failed to create serial device")?;
+        let serial_dev = serial::create().context("Failed to create serial device")?;
 
         // --- Step 9: Create and configure the vCPU ---
         // create_vcpu takes the vCPU index (0 for the first and only vCPU).
@@ -1649,7 +1731,7 @@ impl Vmm {
 
     /// Run the VM until the guest halts or an error occurs.
     pub fn run(&mut self) -> Result<()> {
-        vcpu::run(&self.vcpu, &mut self.serial)
+        vcpu::run(&mut self.vcpu, &mut self.serial)
     }
 }
 ```
