@@ -93,6 +93,14 @@ const EFER_LMA: u64 = 1 << 10; // Long Mode Active
 
 const E820_RAM: u32 = 1;
 
+// e820 region boundaries for the canonical PC memory split (see the e820 setup
+// in `write_boot_params` for why two regions are mandatory).
+/// Top of conventional memory (640 KiB).
+const LOW_RAM_END: u64 = 0x000A_0000;
+/// Base of extended memory (1 MiB). The 640 KiB-1 MiB gap is the legacy
+/// VGA/BIOS hole and is intentionally left unmapped.
+const EXT_RAM_START: u64 = 0x0010_0000;
+
 /// Write the kernel command line into guest memory.
 ///
 /// The cmdline is a null-terminated ASCII string. Its address is recorded
@@ -153,13 +161,28 @@ pub fn write_boot_params(guest_mem: &GuestMemoryMmap, cmdline: &str, mem_size: u
     params.hdr.type_of_loader = 0xFF;
 
     // --- e820 memory map ---
-    // One entry covering all of guest RAM as usable.
+    // The kernel REJECTS the whole e820 table if it has fewer than two entries:
+    // arch/x86/kernel/e820.c's append_e820_table() does `if (nr_entries < 2)
+    // return -1;`, treating a single region as bogus. On that path the kernel
+    // falls back to legacy e801 detection, finds only the low 640 KiB, decides
+    // its own .text/.data/.bss at 16 MiB "are not marked as E820_TYPE_RAM", and
+    // panics in alloc_low_pages. So we must hand it at least two regions.
+    //
+    // We use the canonical PC split that real firmware reports: conventional
+    // memory below 640 KiB, then extended memory from 1 MiB to the top of guest
+    // RAM, leaving the legacy 640 KiB-1 MiB hole (VGA/BIOS) unmapped. The kernel
+    // loads at 16 MiB, which lives in the second (extended) region.
     params.e820_table[0] = linux_loader::bootparam::boot_e820_entry {
         addr: 0,
-        size: mem_size,
+        size: LOW_RAM_END,
         type_: E820_RAM,
     };
-    params.e820_entries = 1;
+    params.e820_table[1] = linux_loader::bootparam::boot_e820_entry {
+        addr: EXT_RAM_START,
+        size: mem_size.saturating_sub(EXT_RAM_START),
+        type_: E820_RAM,
+    };
+    params.e820_entries = 2;
 
     // Write the completed boot_params to guest memory at BOOT_PARAMS_ADDR.
     // Wrap it so it satisfies write_obj's ByteValued bound (see BootParamsWrapper).
