@@ -81,6 +81,19 @@ impl Vmm {
         vm.create_irq_chip()
             .context("Failed to create in-kernel IRQ chip")?;
 
+        // --- Step 4b: Create the in-kernel PIT (8254 timer) ---
+        // Early in boot the kernel calibrates its delay loop / TSC against the
+        // 8254 PIT: it programs channel 2 (ports 0x43/0x42), opens the gate via
+        // port 0x61, then polls the counter down to zero. Without a PIT those
+        // port accesses exit to userspace and we have nothing to answer them
+        // with — the counter never decrements, so the calibration loop spins
+        // forever and boot never progresses past it. Like the IRQ chip, the PIT
+        // lives entirely inside KVM (KVM_CREATE_PIT2): one ioctl, no userspace
+        // device, and it transparently handles ports 0x40-0x43 and the 0x61
+        // channel-2 gate so calibration completes.
+        vm.create_pit2(kvm_bindings::kvm_pit_config::default())
+            .context("Failed to create in-kernel PIT")?;
+
         // --- Step 5: Allocate and register guest memory ---
         let guest_mem = memory::build(mem_mib)?;
         memory::register(&vm, &guest_mem)?;
