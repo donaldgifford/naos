@@ -22,7 +22,7 @@ members = ["crates/naos-linux", "crates/naos-macos"]
 [workspace.package]
 edition = "2024"
 # Keep this loose — the rust-toolchain.toml file pins the actual version.
-rust-version = "1.75"
+rust-version = "1.85"
 
 [workspace.dependencies]
 # Shared crate versions will be declared here as they are introduced by
