@@ -44,11 +44,19 @@ pub fn run(
             kvm_ioctls::VcpuExit::IoOut(port, data) => {
                 if serial::is_serial_port(port) {
                     serial::handle_write(serial_dev, port, data);
+                } else if is_reset_request(port, data) {
+                    // The guest asked the platform to reset. After the panic,
+                    // `reboot=k` pulses the 8042 keyboard-controller reset line
+                    // (out 0xFE -> port 0x64); other configs poke the PCI reset
+                    // register at 0xCF9. We have no platform to reboot, so a
+                    // reset request is our cue to stop — the same clean exit as
+                    // Hlt. Without this the kernel spins forever retrying the
+                    // reset and naos never returns.
+                    break;
                 }
-                // Ports outside the serial range are silently ignored.
-                // A real VMM would log these as unexpected; for the MVP,
-                // the kernel might probe other ports (e.g., 0x80 for
-                // POST codes) and we don't want to crash on them.
+                // Any other port is silently ignored. A real VMM would log
+                // these; for the MVP the kernel probes ports we don't emulate
+                // (e.g. 0x80 POST codes, CMOS/RTC) and we must not crash on them.
             }
 
             // The guest executed `in <port>` (read from I/O port).
@@ -83,4 +91,28 @@ pub fn run(
     }
 
     Ok(())
+}
+
+/// The 8042 keyboard-controller command port. `reboot=k` resets the machine by
+/// writing the "pulse reset line" command (0xFE) here.
+const KBD_CMD_PORT: u16 = 0x64;
+const KBD_RESET_CMD: u8 = 0xFE;
+
+/// The PCI reset control register (a.k.a. "reset control register", `RST_CNT`).
+/// Writing a value with the system-reset bit (bit 2) set requests a reset; the
+/// full-reset bit (bit 3) selects cold vs warm. Used by `reboot=p`/`reboot=c`.
+const PCI_RESET_PORT: u16 = 0x0CF9;
+const PCI_RESET_BIT: u8 = 1 << 2;
+
+/// Does this port write represent a platform reset request?
+///
+/// The MVP emulates no reboot-capable hardware, so we recognize the two reset
+/// mechanisms a Linux guest reaches for and treat either as "the guest wants to
+/// power-cycle" — which, with nothing to reset, means we stop the VM cleanly.
+fn is_reset_request(port: u16, data: &[u8]) -> bool {
+    match (port, data) {
+        (KBD_CMD_PORT, [KBD_RESET_CMD, ..]) => true,
+        (PCI_RESET_PORT, [value, ..]) => value & PCI_RESET_BIT != 0,
+        _ => false,
+    }
 }
