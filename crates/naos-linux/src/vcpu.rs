@@ -116,3 +116,122 @@ fn is_reset_request(port: u16, data: &[u8]) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{KBD_CMD_PORT, KBD_RESET_CMD, PCI_RESET_BIT, PCI_RESET_PORT, is_reset_request};
+
+    /// The full-reset bit (cold vs warm) accompanies the system-reset bit on the
+    /// PCI reset register; it must not, on its own, count as a reset request.
+    const PCI_FULL_RESET_BIT: u8 = 1 << 3;
+
+    #[test]
+    fn kbd_reset_command_is_a_reset() {
+        // `reboot=k`: pulse the CPU reset line via the 8042 command port.
+        assert!(is_reset_request(KBD_CMD_PORT, &[KBD_RESET_CMD]));
+    }
+
+    #[test]
+    fn other_kbd_commands_are_not_resets() {
+        // 0xAD = "disable keyboard interface" — a normal 8042 command.
+        assert!(!is_reset_request(KBD_CMD_PORT, &[0xAD]));
+        assert!(!is_reset_request(KBD_CMD_PORT, &[0x00]));
+    }
+
+    #[test]
+    fn pci_register_with_system_reset_bit_is_a_reset() {
+        assert!(is_reset_request(PCI_RESET_PORT, &[PCI_RESET_BIT]));
+        // Cold reset also sets the system-reset bit, so it counts too.
+        assert!(is_reset_request(
+            PCI_RESET_PORT,
+            &[PCI_RESET_BIT | PCI_FULL_RESET_BIT]
+        ));
+    }
+
+    #[test]
+    fn pci_register_without_system_reset_bit_is_not_a_reset() {
+        assert!(!is_reset_request(PCI_RESET_PORT, &[0x00]));
+        // The full-reset bit alone (no system-reset bit) is not a reset.
+        assert!(!is_reset_request(PCI_RESET_PORT, &[PCI_FULL_RESET_BIT]));
+    }
+
+    #[test]
+    fn unrelated_ports_are_never_resets() {
+        // Port 0x80 (POST codes) and the serial range carry the reset byte
+        // value during boot but must not be treated as reset requests.
+        assert!(!is_reset_request(0x0080, &[KBD_RESET_CMD]));
+        for port in 0x03F8_u16..=0x03FF {
+            assert!(!is_reset_request(port, &[KBD_RESET_CMD]));
+        }
+    }
+
+    #[test]
+    fn empty_write_is_not_a_reset() {
+        assert!(!is_reset_request(KBD_CMD_PORT, &[]));
+        assert!(!is_reset_request(PCI_RESET_PORT, &[]));
+    }
+
+    // Exercises the real run loop to its terminal Hlt arm. Requires /dev/kvm;
+    // skips cleanly when unavailable. Run under sudo to exercise it.
+    #[test]
+    fn run_returns_when_the_guest_halts() {
+        use vm_memory::{Bytes, GuestAddress};
+
+        let Ok(kvm) = kvm_ioctls::Kvm::new() else {
+            eprintln!("skipping run test: /dev/kvm not accessible");
+            return;
+        };
+        let vm = kvm.create_vm().unwrap();
+        vm.set_tss_address(0xFFFB_D000).unwrap();
+        let mem = crate::memory::build(2).unwrap();
+        crate::memory::register(&vm, &mem).unwrap();
+
+        // A single HLT (0xF4) at the entry point. With no in-kernel IRQ chip the
+        // guest's HLT exits to userspace, so run() takes its Hlt arm and returns.
+        let entry = 0x10_0000;
+        mem.write_obj(0xF4_u8, GuestAddress(entry)).unwrap();
+
+        let mut vcpu = vm.create_vcpu(0).unwrap();
+        let cpuid = kvm
+            .get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .unwrap();
+        vcpu.set_cpuid2(&cpuid).unwrap();
+        crate::boot::configure(&vcpu, &mem, entry).unwrap();
+
+        let mut serial = crate::serial::create().unwrap();
+        super::run(&mut vcpu, &mut serial).unwrap();
+    }
+
+    // Exercises the run loop's defensive arm: an exit reason we do not handle
+    // must surface as an error rather than being swallowed. Requires /dev/kvm.
+    #[test]
+    fn run_errors_on_an_unhandled_exit() {
+        use vm_memory::{Bytes, GuestAddress};
+
+        let Ok(kvm) = kvm_ioctls::Kvm::new() else {
+            eprintln!("skipping run test: /dev/kvm not accessible");
+            return;
+        };
+        let vm = kvm.create_vm().unwrap();
+        vm.set_tss_address(0xFFFB_D000).unwrap();
+        let mem = crate::memory::build(2).unwrap();
+        crate::memory::register(&vm, &mem).unwrap();
+
+        // `mov al, [0x200000]`: the page tables map 0x200000 but no memory slot
+        // backs it (guest RAM is 2 MiB), so the read exits with MMIO — a reason
+        // run() does not handle and must therefore turn into an error.
+        let entry = 0x10_0000;
+        let code = [0xA0_u8, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00];
+        mem.write_slice(&code, GuestAddress(entry)).unwrap();
+
+        let mut vcpu = vm.create_vcpu(0).unwrap();
+        let cpuid = kvm
+            .get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .unwrap();
+        vcpu.set_cpuid2(&cpuid).unwrap();
+        crate::boot::configure(&vcpu, &mem, entry).unwrap();
+
+        let mut serial = crate::serial::create().unwrap();
+        assert!(super::run(&mut vcpu, &mut serial).is_err());
+    }
+}

@@ -88,3 +88,40 @@ pub fn register(vm: &VmFd, guest_mem: &GuestMemoryMmap) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{build, register};
+    use kvm_ioctls::Kvm;
+    use vm_memory::{GuestMemory, GuestMemoryRegion};
+
+    const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn build_allocates_one_region_of_requested_size() {
+        let mem = build(4).unwrap();
+        let region = mem.iter().next().unwrap();
+        assert_eq!(region.len(), 4 * MIB);
+        assert_eq!(region.start_addr().0, 0);
+    }
+
+    #[test]
+    fn build_rejects_a_size_that_overflows_bytes() {
+        // size_mib * 1 MiB overflows u64, so checked_mul yields an error.
+        let too_big = u64::MAX / MIB + 2;
+        assert!(build(too_big).is_err());
+    }
+
+    #[test]
+    fn register_succeeds_for_a_valid_region() {
+        // Needs /dev/kvm; skip cleanly where it is unavailable (e.g. CI without
+        // KVM, or a user not in the `kvm` group). Run under sudo to exercise it.
+        let Ok(kvm) = Kvm::new() else {
+            eprintln!("skipping register test: /dev/kvm not accessible");
+            return;
+        };
+        let vm = kvm.create_vm().unwrap();
+        let mem = build(8).unwrap();
+        register(&vm, &mem).unwrap();
+    }
+}

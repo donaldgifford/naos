@@ -120,3 +120,68 @@ pub fn handle_read(
         *byte = serial.read(offset);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        COM1_PORT_BASE, COM1_PORT_COUNT, EventFdTrigger, create, handle_read, handle_write,
+        is_serial_port,
+    };
+    use vm_superio::Trigger;
+
+    /// 16550 Line Status Register offset and its transmitter-ready bit.
+    const LSR_OFFSET: u16 = 5;
+    const LSR_THR_EMPTY: u8 = 1 << 5;
+
+    #[test]
+    fn serial_range_boundaries() {
+        assert!(!is_serial_port(COM1_PORT_BASE - 1));
+        assert!(is_serial_port(COM1_PORT_BASE));
+        assert!(is_serial_port(COM1_PORT_BASE + COM1_PORT_COUNT - 1));
+        assert!(!is_serial_port(COM1_PORT_BASE + COM1_PORT_COUNT));
+    }
+
+    #[test]
+    fn every_com1_register_is_in_range() {
+        for offset in 0..COM1_PORT_COUNT {
+            assert!(is_serial_port(COM1_PORT_BASE + offset));
+        }
+    }
+
+    #[test]
+    fn event_fd_trigger_can_be_created_and_pulsed() {
+        let trigger = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
+        trigger.trigger().unwrap();
+    }
+
+    #[test]
+    fn event_fd_trigger_derefs_to_inner_event_fd() {
+        let trigger = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
+        // `try_clone` exists only on the inner EventFd, so calling it through
+        // the wrapper goes via the Deref impl.
+        trigger.try_clone().unwrap();
+    }
+
+    #[test]
+    fn create_builds_a_serial_device() {
+        create().unwrap();
+    }
+
+    #[test]
+    fn lsr_reports_transmitter_ready() {
+        let mut serial = create().unwrap();
+        let mut data = [0_u8; 1];
+        handle_read(&mut serial, COM1_PORT_BASE + LSR_OFFSET, &mut data);
+        // Without the THR-empty bit the kernel would spin waiting to transmit.
+        assert_ne!(data[0] & LSR_THR_EMPTY, 0);
+    }
+
+    #[test]
+    fn writing_to_thr_does_not_panic() {
+        // Offset 0 is the transmit holding register — the path the kernel uses
+        // to print. The byte goes to the device's stdout sink; here we just
+        // exercise the register/flush logic.
+        let mut serial = create().unwrap();
+        handle_write(&mut serial, COM1_PORT_BASE, b"X");
+    }
+}

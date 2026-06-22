@@ -355,3 +355,212 @@ pub fn configure(vcpu: &VcpuFd, guest_mem: &GuestMemoryMmap, entry_addr: u64) ->
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BOOT_PARAMS_ADDR, CMDLINE_ADDR, CODE_SEL, CR0_PE, CR0_PG, CR4_PAE, DATA_SEL, E820_RAM,
+        EFER_LME, EXT_RAM_START, GDT_ADDR, GDT_CODE, GDT_DATA, GDT_NULL, LOW_RAM_END, PD_ADDR,
+        PDPT_ADDR, PML4_ADDR, PTE_PRESENT, PTE_PS, PTE_RW, configure, make_code_segment,
+        make_data_segment, write_boot_params, write_cmdline, write_gdt, write_page_tables,
+    };
+    use linux_loader::bootparam::{boot_e820_entry, boot_params};
+    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+
+    const TWO_MIB: u64 = 2 * 1024 * 1024;
+
+    fn guest_mem(bytes: u64) -> GuestMemoryMmap {
+        let len = usize::try_from(bytes).unwrap();
+        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), len)]).unwrap()
+    }
+
+    /// Guest address of a `boot_params` field, given its struct offset.
+    fn boot_param_field(field_offset: usize) -> GuestAddress {
+        GuestAddress(BOOT_PARAMS_ADDR + field_offset as u64)
+    }
+
+    // --- GDT descriptor encoding (Intel SDM Vol. 3A, 3.4.5 / 5.2.1) ---
+
+    #[test]
+    fn null_descriptor_is_zero() {
+        assert_eq!(GDT_NULL, 0);
+    }
+
+    #[test]
+    fn code_descriptor_is_64bit_ring0() {
+        // Access byte (bits 47:40) = 0x9A: P=1, DPL=0, S=1, Type=code/exec/read.
+        assert_eq!((GDT_CODE >> 40) & 0xFF, 0x9A);
+        // Flags nibble (bits 55:52) = 0xA: G=1, D=0, L=1 -> 64-bit code segment.
+        assert_eq!((GDT_CODE >> 52) & 0xF, 0xA);
+    }
+
+    #[test]
+    fn data_descriptor_is_writable_ring0() {
+        // Access byte = 0x92: P=1, DPL=0, S=1, Type=data/writable.
+        assert_eq!((GDT_DATA >> 40) & 0xFF, 0x92);
+        // Flags nibble = 0xC: G=1, D=1, L=0 (data segments are not long).
+        assert_eq!((GDT_DATA >> 52) & 0xF, 0xC);
+    }
+
+    // --- write_gdt / write_page_tables / write_cmdline (guest memory writers) ---
+
+    #[test]
+    fn write_gdt_lays_out_null_code_data() {
+        let mem = guest_mem(0x1000);
+        write_gdt(&mem).unwrap();
+        let null: u64 = mem.read_obj(GuestAddress(GDT_ADDR)).unwrap();
+        let code: u64 = mem.read_obj(GuestAddress(GDT_ADDR + 8)).unwrap();
+        let data: u64 = mem.read_obj(GuestAddress(GDT_ADDR + 16)).unwrap();
+        assert_eq!(null, GDT_NULL);
+        assert_eq!(code, GDT_CODE);
+        assert_eq!(data, GDT_DATA);
+    }
+
+    #[test]
+    fn page_tables_chain_pml4_pdpt_pd() {
+        let mem = guest_mem(0x5000);
+        write_page_tables(&mem).unwrap();
+        let pml4: u64 = mem.read_obj(GuestAddress(PML4_ADDR)).unwrap();
+        let pdpt: u64 = mem.read_obj(GuestAddress(PDPT_ADDR)).unwrap();
+        assert_eq!(pml4, PDPT_ADDR | PTE_PRESENT | PTE_RW);
+        assert_eq!(pdpt, PD_ADDR | PTE_PRESENT | PTE_RW);
+        // Table pointers are not large-page entries.
+        assert_eq!(pml4 & PTE_PS, 0);
+    }
+
+    #[test]
+    fn page_directory_identity_maps_with_large_pages() {
+        let mem = guest_mem(0x5000);
+        write_page_tables(&mem).unwrap();
+        for index in [0_u64, 1, 255, 511] {
+            let entry: u64 = mem.read_obj(GuestAddress(PD_ADDR + index * 8)).unwrap();
+            assert_ne!(entry & PTE_PRESENT, 0);
+            assert_ne!(entry & PTE_RW, 0);
+            assert_ne!(entry & PTE_PS, 0); // 2 MiB large page
+            // Identity mapping: physical base (flags masked off) == index * 2 MiB.
+            assert_eq!(entry & !0xFFF, index * TWO_MIB);
+        }
+    }
+
+    #[test]
+    fn write_cmdline_writes_string_then_null() {
+        let mem = guest_mem(CMDLINE_ADDR + 0x1000);
+        let cmdline = "console=ttyS0";
+        write_cmdline(&mem, cmdline).unwrap();
+        let mut buf = vec![0_u8; cmdline.len()];
+        mem.read_slice(&mut buf, GuestAddress(CMDLINE_ADDR))
+            .unwrap();
+        assert_eq!(buf, cmdline.as_bytes());
+        let terminator: u8 = mem
+            .read_obj(GuestAddress(CMDLINE_ADDR + cmdline.len() as u64))
+            .unwrap();
+        assert_eq!(terminator, 0);
+    }
+
+    // --- write_boot_params (the e820 map — regression guard for the boot bug) ---
+
+    #[test]
+    fn boot_params_describe_two_ram_regions() {
+        let mem = guest_mem(0x8000);
+        let mem_size = 256 * TWO_MIB; // 512 MiB
+        write_boot_params(&mem, "console=ttyS0", mem_size).unwrap();
+
+        // The kernel discards e820 tables with fewer than two entries, so the
+        // count must be exactly the two regions we wrote.
+        let entries: u8 = mem
+            .read_obj(boot_param_field(std::mem::offset_of!(
+                boot_params,
+                e820_entries
+            )))
+            .unwrap();
+        assert_eq!(entries, 2);
+
+        let table = std::mem::offset_of!(boot_params, e820_table);
+        let stride = std::mem::size_of::<boot_e820_entry>();
+
+        // Region 0: conventional memory [0, 640 KiB).
+        let low_addr: u64 = mem.read_obj(boot_param_field(table)).unwrap();
+        let low_size: u64 = mem.read_obj(boot_param_field(table + 8)).unwrap();
+        let low_type: u32 = mem.read_obj(boot_param_field(table + 16)).unwrap();
+        assert_eq!(low_addr, 0);
+        assert_eq!(low_size, LOW_RAM_END);
+        assert_eq!(low_type, E820_RAM);
+
+        // Region 1: extended memory [1 MiB, top of RAM).
+        let ext_addr: u64 = mem.read_obj(boot_param_field(table + stride)).unwrap();
+        let ext_size: u64 = mem.read_obj(boot_param_field(table + stride + 8)).unwrap();
+        assert_eq!(ext_addr, EXT_RAM_START);
+        assert_eq!(ext_size, mem_size - EXT_RAM_START);
+    }
+
+    #[test]
+    fn boot_params_record_cmdline_pointer_and_loader_type() {
+        let mem = guest_mem(0x8000);
+        write_boot_params(&mem, "x", 64 * TWO_MIB).unwrap();
+
+        let cmd_ptr: u32 = mem
+            .read_obj(boot_param_field(std::mem::offset_of!(
+                boot_params,
+                hdr.cmd_line_ptr
+            )))
+            .unwrap();
+        assert_eq!(u64::from(cmd_ptr), CMDLINE_ADDR);
+
+        let loader: u8 = mem
+            .read_obj(boot_param_field(std::mem::offset_of!(
+                boot_params,
+                hdr.type_of_loader
+            )))
+            .unwrap();
+        assert_eq!(loader, 0xFF);
+    }
+
+    // --- segment register builders ---
+
+    #[test]
+    fn code_segment_is_long_mode() {
+        let cs = make_code_segment();
+        assert_eq!(cs.selector, CODE_SEL);
+        assert_eq!(cs.l, 1); // 64-bit
+        assert_eq!(cs.db, 0); // must be 0 when L=1
+        assert_eq!(cs.present, 1);
+        assert_eq!(cs.dpl, 0);
+    }
+
+    #[test]
+    fn data_segment_is_present_and_not_long() {
+        let ds = make_data_segment();
+        assert_eq!(ds.selector, DATA_SEL);
+        assert_eq!(ds.l, 0);
+        assert_eq!(ds.present, 1);
+    }
+
+    // --- configure (requires /dev/kvm; skips cleanly when unavailable) ---
+
+    #[test]
+    fn configure_puts_vcpu_in_long_mode() {
+        let Ok(kvm) = kvm_ioctls::Kvm::new() else {
+            eprintln!("skipping configure test: /dev/kvm not accessible");
+            return;
+        };
+        let vm = kvm.create_vm().unwrap();
+        let mem = guest_mem(TWO_MIB); // covers GDT + page tables
+        let vcpu = vm.create_vcpu(0).unwrap();
+        let entry = 0x10_0000;
+
+        configure(&vcpu, &mem, entry).unwrap();
+
+        let sregs = vcpu.get_sregs().unwrap();
+        assert_eq!(sregs.cr3, PML4_ADDR);
+        assert_ne!(sregs.cr0 & CR0_PE, 0);
+        assert_ne!(sregs.cr0 & CR0_PG, 0);
+        assert_ne!(sregs.cr4 & CR4_PAE, 0);
+        assert_ne!(sregs.efer & EFER_LME, 0);
+        assert_eq!(sregs.cs.selector, CODE_SEL);
+        assert_eq!(sregs.cs.l, 1);
+
+        let regs = vcpu.get_regs().unwrap();
+        assert_eq!(regs.rip, entry);
+        assert_eq!(regs.rsi, BOOT_PARAMS_ADDR);
+    }
+}
