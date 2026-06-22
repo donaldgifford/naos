@@ -38,6 +38,23 @@ lint:
 run *args:
     @just run-{{os()}} {{args}}
 
+# Requires cargo-llvm-cov (provided by mise) and the `llvm-tools` rustup
+# component (declared in rust-toolchain.toml). The KVM-gated tests only
+# contribute coverage when /dev/kvm is accessible (kvm group membership — see
+# DEVELOPMENT.md); otherwise they skip and their lines show as uncovered.
+#
+# Measure test coverage for the crate that makes sense on this host.
+coverage:
+    @just coverage-{{os()}}
+
+# Build an HTML coverage report and open it in a browser.
+coverage-html:
+    @just coverage-html-{{os()}}
+
+# Write an lcov.info coverage report (for CI upload or external tools).
+coverage-lcov:
+    @just coverage-lcov-{{os()}}
+
 # =============================================================================
 # naos-linux
 #
@@ -64,6 +81,18 @@ test-linux:
 # Lint naos-linux with clippy, warnings as errors.
 lint-linux:
     cargo clippy -p naos-linux --all-targets -- -D warnings
+
+# Coverage summary table for naos-linux.
+coverage-linux:
+    cargo llvm-cov -p naos-linux
+
+# HTML coverage report for naos-linux, opened in a browser.
+coverage-html-linux:
+    cargo llvm-cov -p naos-linux --html --open
+
+# lcov.info coverage report for naos-linux.
+coverage-lcov-linux:
+    cargo llvm-cov -p naos-linux --lcov --output-path lcov.info
 
 # Run naos-linux. Forwards args to the binary.
 run-linux *args:
@@ -95,6 +124,18 @@ test-macos:
 # Lint naos-macos with clippy, warnings as errors.
 lint-macos:
     cargo clippy -p naos-macos --all-targets -- -D warnings
+
+# Coverage summary table for naos-macos.
+coverage-macos:
+    cargo llvm-cov -p naos-macos
+
+# HTML coverage report for naos-macos, opened in a browser.
+coverage-html-macos:
+    cargo llvm-cov -p naos-macos --html --open
+
+# lcov.info coverage report for naos-macos.
+coverage-lcov-macos:
+    cargo llvm-cov -p naos-macos --lcov --output-path lcov.info
 
 # Run naos-macos. Forwards args to the binary.
 run-macos *args:

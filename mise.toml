@@ -1,6 +1,13 @@
 [tools]
-rust = "latest"
+# Install rust with the components the toolchain needs: rustfmt (fmt), clippy
+# (lint), and llvm-tools (cargo-llvm-cov coverage instrumentation). mise's rust
+# governs the active toolchain, so the components must be declared here — and
+# also in rust-toolchain.toml for anyone driving rustup directly.
+rust = { version = "latest", components = "rustfmt,clippy,llvm-tools" }
 just = "latest"
+# Rust coverage. cargo-llvm-cov is a cargo subcommand; it relies on the
+# llvm-tools component installed with rust above.
+"aqua:taiki-e/cargo-llvm-cov" = "latest"
 shellcheck = "latest"
 shfmt = "latest"
 
