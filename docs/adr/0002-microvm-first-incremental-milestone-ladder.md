@@ -52,13 +52,15 @@ milestone a demoable artifact with a clear success criterion:
 - **M2 — interactive serial console.** Event loop + serial input + an initramfs
   rootfs. *Success:* `just run` gives a shell prompt on the terminal; run
   `ls`, `uname -a`; `poweroff`; clean exit 0. Detailed in
-  [[0001-m2-interactive-serial-console]].
+  [[0001-event-loop-and-concurrency-model]] and
+  [[0002-interactive-serial-console]].
 - **M3 — block storage.** virtio-mmio transport + virtio-blk. *Success:* boot a
   persistent disk-image rootfs (Alpine or minimal Debian) to a login; write a
-  file, reboot, it persists. Detailed in [[0002-m3-block-storage-via-virtio-blk]].
+  file, reboot, it persists. Detailed in [[0003-virtio-mmio-device-model]] and
+  [[0004-block-storage-via-virtio-blk]].
 - **M4 — networking + SSH.** virtio-net + host tap. *Success:*
   `ssh user@<vm-ip>` from the host, run commands, exit. Detailed in
-  [[0003-m4-guest-networking-and-ssh]].
+  [[0005-guest-networking-and-ssh]].
 
 Interactive access is **serial-console-first**: "log in and run commands and
 exit" is delivered at M2 over the serial console. SSH is a *network* capability

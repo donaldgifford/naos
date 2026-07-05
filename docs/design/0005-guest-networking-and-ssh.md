@@ -1,13 +1,13 @@
 ---
-id: DESIGN-0003
-title: "M4 — guest networking and SSH"
+id: DESIGN-0005
+title: "Guest networking and SSH"
 status: Draft
 author: Donald Gifford
 created: 2026-07-05
 ---
 <!-- markdownlint-disable-file MD025 MD041 -->
 
-# DESIGN 0003: M4 — guest networking and SSH
+# DESIGN 0005: Guest networking and SSH
 
 **Status:** Draft
 **Author:** Donald Gifford
@@ -45,13 +45,16 @@ created: 2026-07-05
 
 ## Overview
 
-M4 gives the guest a network interface and delivers SSH access into the VM. It
-adds a **virtio-net** device on the guest side and a host **tap** device on the
-VMM side, wired together over the same virtio-mmio + virtqueue + event-loop
-foundation built for block storage in [[0002-m3-block-storage-via-virtio-blk]].
-The milestone succeeds when a user runs `ssh user@<guest-ip>` from the host,
-executes commands in the guest, and exits cleanly — the first time naos runs a
-service a human interacts with over a real network.
+This design gives the guest a network interface and delivers SSH access into the
+VM. It adds a **virtio-net** device on the guest side and a host **tap** device
+on the VMM side, wired together over the same virtio-mmio + virtqueue +
+event-loop foundation established by the device model in
+[[0003-virtio-mmio-device-model]] and first exercised by block storage in
+[[0004-block-storage-via-virtio-blk]]. It succeeds when a user runs
+`ssh user@<guest-ip>` from the host, executes commands in the guest, and exits
+cleanly — the first time naos runs a service a human interacts with over a real
+network. This is the networking milestone; the doc is named for the decision,
+not the milestone.
 
 ## Goals and Non-Goals
 
@@ -70,8 +73,8 @@ service a human interacts with over a real network.
   alternative.
 - Ship a guest rootfs with `CONFIG_VIRTIO_NET`, an `sshd`, host keys, a login
   user, and a minimal network-config init step.
-- Add `--net` / `--tap <name>` CLI flags; keep M2 and M3 working with no
-  networking configured.
+- Add `--net` / `--tap <name>` CLI flags; keep the existing serial-console and
+  block-storage builds working with no networking configured.
 
 ### Non-Goals
 
@@ -80,13 +83,13 @@ service a human interacts with over a real network.
   RX buffers are later performance work.
 - **The virtio-net control queue (VIRTQ 2).** Deferred; see Detailed Design. We
   advertise a fixed MAC and no offloads, so no control-plane negotiation is
-  needed for M4.
+  needed here.
 - **Checksum/TSO/GSO/UFO offloads and multicast filtering.** Not negotiated.
 - **DHCP server ownership, IPAM, or overlay networking.** Host-side addressing
   is a static default with an optional `dnsmasq`; fleet-scale IPAM is out of
   scope.
-- **The jailer / unprivileged operation.** tap requires elevated privilege; M4
-  runs unsandboxed and names that gap explicitly. Confining the VMM is
+- **The jailer / unprivileged operation.** tap requires elevated privilege; naos
+  runs unsandboxed here and names that gap explicitly. Confining the VMM is
   [[0010-guest-isolation-jailer]], deferred.
 - **User-mode networking (passt/slirp).** A rootless alternative recorded in
   [[0006-guest-networking-via-virtio-net-and-tap]], not built here.
@@ -98,19 +101,20 @@ in the guest and a host tap device, the Firecracker / Cloud Hypervisor model
 and the most direct path to `ssh user@<vm-ip>`. This design implements that
 decision.
 
-M4 is the second virtio device, and it is deliberately sequenced after block
-storage so that the hard, shared plumbing is already paid for. From
-[[0002-m3-block-storage-via-virtio-blk]] and its ADRs we inherit:
+This is the second virtio device, and it is deliberately sequenced after block
+storage so that the hard, shared plumbing is already paid for. From the
+virtio-mmio device model [[0003-virtio-mmio-device-model]] and the block-storage
+build [[0004-block-storage-via-virtio-blk]] that first exercised it, we inherit:
 
-- **virtio-mmio transport** ([[0004-virtio-over-mmio-device-transport]]): each
-  device occupies a fixed MMIO region and a fixed IRQ line, discovered by the
-  guest through a `virtio_mmio.device=<size>@<addr>:<irq>` kernel-cmdline token
-  rather than PCI enumeration. An MMIO dispatch ("bus") routes guest MMIO
-  vmexits to the right device.
+- **virtio-mmio transport** ([[0003-virtio-mmio-device-model]]): each device
+  occupies a fixed MMIO region and a fixed IRQ line, discovered by the guest
+  through a `virtio_mmio.device=<size>@<addr>:<irq>` kernel-cmdline token rather
+  than PCI enumeration. An MMIO dispatch ("bus") routes guest MMIO vmexits to
+  the right device.
 - **Virtqueues** via rust-vmm's `virtio-queue`: the split-virtqueue descriptor
   table, available ring, and used ring, laid out in guest memory and accessed
   through `vm-memory`.
-- **The epoll event loop** ([[0003-event-driven-epoll-concurrency-model]]): the
+- **The epoll event loop** ([[0001-event-loop-and-concurrency-model]]): the
   vCPU runs on its own thread blocking in `KVM_RUN`; host-side fds are
   registered with an `event-manager` epoll loop on a separate thread and
   serviced on readiness. **irqfd** injects device interrupts without a
@@ -159,7 +163,7 @@ the tap or the queues directly; it only executes guest code and, when the guest
 kicks the TX queue, that MMIO write is intercepted in-kernel by an ioeventfd and
 turned into an eventfd wake for the I/O thread. Interrupts flow the other way
 through irqfd. This keeps the two threads sharing only guest memory (already
-shared for M3) and a pair of eventfds per queue.
+shared for the block device) and a pair of eventfds per queue.
 
 ### The virtio-net device
 
@@ -173,8 +177,8 @@ virtio-net exposes two virtqueues for the data plane:
   and moves the (now-free) descriptor to the used ring.
 
 The optional **control queue (queue 2)** carries out-of-band commands — MAC
-programming, RX-mode/promisc changes, offload toggles, VLAN filters. M4 does
-**not** advertise `VIRTIO_NET_F_CTRL_VQ`, so the guest never creates it; we
+programming, RX-mode/promisc changes, offload toggles, VLAN filters. This design
+does **not** advertise `VIRTIO_NET_F_CTRL_VQ`, so the guest never creates it; we
 present a fixed MAC and a fixed feature set instead. It is called out here
 because it is the natural next increment.
 
@@ -191,7 +195,7 @@ its own constant and its own unit test.
 **Feature negotiation.** The device advertises the mandatory modern-virtio bits
 (`VIRTIO_F_VERSION_1`) plus `VIRTIO_NET_F_MAC` (so the guest reads a stable MAC
 from config space). It deliberately does **not** advertise checksum/TSO/GSO,
-mergeable RX buffers, the control queue, or multiqueue for M4. Fewer negotiated
+mergeable RX buffers, the control queue, or multiqueue here. Fewer negotiated
 features means a simpler, more auditable backend; each can be added later behind
 its own feature bit.
 
@@ -203,8 +207,8 @@ hardware address.
 
 We build the device on rust-vmm's `virtio-device` (device-type/state helpers,
 feature and config plumbing) and `virtio-queue` (the split-virtqueue rings over
-`vm-memory`), the same crates M3 introduced. No new virtio dependency is
-required.
+`vm-memory`), the same crates the block-storage build introduced. No new virtio
+dependency is required.
 
 ### Data path: RX (host → guest)
 
@@ -270,8 +274,8 @@ Either way, tap is a real privilege and a real host-network attack surface. This
 is exactly the concern [[0010-guest-isolation-jailer]] tracks: once the VMM
 holds `CAP_NET_ADMIN` and bridges a guest onto the host network, a jailer
 (seccomp, namespaces, chroot, capability dropping) becomes load-bearing rather
-than optional. M4 ships without it and states the gap plainly; the pre-created
-tap mode is the interim mitigation.
+than optional. This milestone ships without it and states the gap plainly; the
+pre-created tap mode is the interim mitigation.
 
 ### Host connectivity
 
@@ -296,7 +300,7 @@ default:
 
 Guest addressing is either **static** (passed on the kernel cmdline / guest
 config and applied by the init step) or **DHCP** (a host-side `dnsmasq` bound to
-`naos-tap0` leasing the `/30` or bridge subnet). The M4 default is static
+`naos-tap0` leasing the `/30` or bridge subnet). The default here is static
 addressing on the `/30`: fewer moving parts, deterministic guest IP, and nothing
 to fail before sshd comes up.
 
@@ -310,8 +314,8 @@ to "open/attach a tap fd and move frames."
 The guest image gains four things:
 
 - **`CONFIG_VIRTIO_NET`** in the kernel (alongside the `CONFIG_VIRTIO_MMIO` the
-  M3 kernel already carries). The `virtio_mmio.device=` cmdline token for the
-  net device makes the driver bind without PCI probing.
+  existing kernel already carries). The `virtio_mmio.device=` cmdline token for
+  the net device makes the driver bind without PCI probing.
 - **An SSH server.** `dropbear` for a minimal microVM image (tiny, single
   binary) or `openssh-server` for a fuller distro rootfs. Either satisfies the
   success criterion; dropbear is the default for the small image.
@@ -333,8 +337,8 @@ ssh user@10.0.15.2      # (or the DHCP/bridge-assigned address)
 
 connecting from the host, running commands in the guest, and exiting cleanly.
 That end-to-end path — host TCP → tap → RX queue → guest sshd, and the reverse
-for responses — exercises every piece M4 adds. **`ssh user@<guest-ip>`, run
-commands, exit** is the M4 success criterion.
+for responses — exercises every piece this work adds. **`ssh user@<guest-ip>`,
+run commands, exit** is the success criterion.
 
 ## API / Interface Changes
 
@@ -342,7 +346,8 @@ New CLI flags on the `naos-linux` `Args` (clap), additive to the existing
 `--kernel` / `--mem` / `--cmdline`:
 
 - `--net` — enable guest networking. When absent, no virtio-net device is
-  created and the VM behaves exactly as in M2/M3. Networking is strictly opt-in.
+  created and the VM behaves exactly as before networking. Networking is strictly
+  opt-in.
 - `--tap <name>` — the tap interface to open or attach to. Defaults to
   `naos-tap0`. Implies `--net`.
 - `--mac <addr>` (optional) — override the guest MAC. Defaults to a
@@ -353,16 +358,16 @@ The kernel `--cmdline` gains a second `virtio_mmio.device=<size>@<addr>:<irq>`
 token for the net device's MMIO region and IRQ when `--net` is set, appended by
 the VMM rather than hand-written by the user.
 
-No changes to the M2/M3 interface: with none of the above flags, existing
+No changes to the existing interface: with none of the above flags, existing
 invocations are byte-for-byte unchanged and no tap is opened.
 
 ## Data Model
 
-**Guest physical layout.** The M3 MMIO device region gains a second, adjacent
-virtio-mmio window for the net device, each a fixed size with its own IRQ line,
-both above the guest RAM top and below the legacy high-MMIO area — the fixed,
-hardcoded layout [[0004-virtio-over-mmio-device-transport]] commits to. The
-exact base/size/IRQ are pinned as constants next to the block device's, in the
+**Guest physical layout.** The existing MMIO device region gains a second,
+adjacent virtio-mmio window for the net device, each a fixed size with its own
+IRQ line, both above the guest RAM top and below the legacy high-MMIO area — the
+fixed, hardcoded layout [[0003-virtio-mmio-device-model]] commits to. The exact
+base/size/IRQ are pinned as constants next to the block device's, in the
 MMIO-bus module.
 
 **Virtqueues (per queue, in guest RAM, via `virtio-queue`).** Standard
@@ -417,9 +422,9 @@ without, mirroring the existing gated vCPU tests):**
   to the RX queue; enqueue a frame on TX, assert it appears on the tap.
 - **End-to-end SSH.** Boot the guest image with `--net`, wait for the guest IP
   to answer, run `ssh user@<guest-ip> 'uname -a'` from the test, assert the
-  command output and a zero exit. This is the milestone's acceptance test; it is
-  the one test that proves M4, so it runs in CI on a KVM-capable, privileged
-  runner (or is documented as a manual `just` recipe where CI cannot grant the
+  command output and a zero exit. This is the acceptance test; it is the one test
+  that proves this design, so it runs in CI on a KVM-capable, privileged runner
+  (or is documented as a manual `just` recipe where CI cannot grant the
   capability).
 
 **Manual smoke test:** `just run --net --kernel … --disk …`, then
@@ -427,8 +432,9 @@ without, mirroring the existing gated vCPU tests):**
 
 ## Migration / Rollout Plan
 
-Networking is additive and opt-in, so M2/M3 users are unaffected until they pass
-`--net`. The work lands in reviewable increments, each independently testable:
+Networking is additive and opt-in, so existing users are unaffected until they
+pass `--net`. The work lands in reviewable increments, each independently
+testable:
 
 1. **Tap module.** Open `/dev/net/tun`, `TUNSETIFF(IFF_TAP|IFF_NO_PI)`,
    non-blocking fd, name `naos-tap0`. Unit-test the ioctl wrapper; smoke-test by
@@ -438,8 +444,9 @@ Networking is additive and opt-in, so M2/M3 users are unaffected until they pass
    12-byte header, feature/config plumbing, and the frame-shuttling backend
    against a *fake* tap sink. Fully unit-tested with no KVM.
 3. **Event-loop wiring.** Register the tap fd for read, TX ioeventfd for notify,
-   RX/TX irqfds for interrupts — reusing the M3 registration path. Boot a guest
-   and confirm the interface appears (`ip link`) and ARP/ping to the host works.
+   RX/TX irqfds for interrupts — reusing the existing registration path. Boot a
+   guest and confirm the interface appears (`ip link`) and ARP/ping to the host
+   works.
 4. **Host connectivity script.** The `/30` + NAT default as a `just`/`scripts`
    recipe (tap addressing, `net.ipv4.ip_forward`, nftables masquerade), with the
    bridge variant documented alongside.
@@ -472,8 +479,8 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 ### 2. virtio-mmio layout for the net device
 
 - **a (recommended).** Allocate the net device the next slot after the block
-  device in the M3 MMIO/GSI layout; confirm no collision with M3 or the guest
-  kernel's expectations before wiring.
+  device in the existing MMIO/GSI layout; confirm no collision with the block
+  device or the guest kernel's expectations before wiring.
 - **b.** Carve out a separate reserved MMIO/GSI region for network devices.
 - **other.** *(write-in)*
 
@@ -510,7 +517,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 
 ### 6. Where connectivity setup lives
 
-- **a (recommended).** A `just` recipe plus a `scripts/` helper for M4; defer
+- **a (recommended).** A `just` recipe plus a `scripts/` helper for now; defer
   moving tap/NAT setup into a privileged VMM phase (or the future jailer,
   [[0010-guest-isolation-jailer]]).
 - **b.** Build tap/NAT setup into naos itself as a privileged setup phase now.
@@ -532,15 +539,12 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 
 - [[0006-guest-networking-via-virtio-net-and-tap]] — the ADR this design
   implements.
-- [[0004-virtio-over-mmio-device-transport]] — virtio-mmio transport and MMIO
-  bus.
-- [[0003-event-driven-epoll-concurrency-model]] — epoll loop, irqfd, ioeventfd.
-- [[0002-microvm-first-incremental-milestone-ladder]] — where M4 sits and its
-  success criterion.
-- [[0002-m3-block-storage-via-virtio-blk]] — the virtio-mmio + virtqueue +
-  event-loop foundation M4 reuses.
-- [[0001-m2-interactive-serial-console]] — the event loop and interactive-access
-  baseline.
+- [[0003-virtio-mmio-device-model]] — virtio-mmio transport, the MMIO bus,
+  virtqueues, irqfd, and ioeventfd; the substrate virtio-net builds on.
+- [[0001-event-loop-and-concurrency-model]] — the epoll loop, the vCPU/I/O
+  thread split, and interrupt/notification wiring.
+- [[0004-block-storage-via-virtio-blk]] — the first device on the virtio-mmio
+  substrate; the plumbing this design reuses.
 - [[0010-guest-isolation-jailer]] — the deferred jailer that will confine the
   `CAP_NET_ADMIN`-holding VMM.
 - **virtio 1.2 specification**, §5.1 "Network Device" — RX/TX virtqueues, the

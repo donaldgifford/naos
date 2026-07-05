@@ -83,5 +83,5 @@ Adopt an **epoll-based event loop** as the VMM's core concurrency model:
 ## References
 
 - [[0002-microvm-first-incremental-milestone-ladder]]
-- [[0001-m2-interactive-serial-console]]
+- [[0001-event-loop-and-concurrency-model]]
 - `WALK-linux.md` §13 "What's next"

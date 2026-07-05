@@ -69,7 +69,7 @@ VMs only becomes a concrete pressure after a single VM works end to end.
 To be evaluated at acceptance: HTTP API over a Unix socket (Firecracker-style),
 gRPC, a config-file + CLI surface only, or a long-running daemon (libvirt-style).
 
-**Blocking dependencies:** M4 complete ([[0003-m4-guest-networking-and-ssh]]);
+**Blocking dependencies:** M4 complete ([[0005-guest-networking-and-ssh]]);
 the process-model decision.
 
 ## References

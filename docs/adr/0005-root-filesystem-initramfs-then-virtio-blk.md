@@ -81,4 +81,4 @@ mode; virtio-blk is the path to persistent and general-purpose rootfs.
 ## References
 
 - [[0002-microvm-first-incremental-milestone-ladder]], [[0004-virtio-over-mmio-device-transport]]
-- [[0001-m2-interactive-serial-console]], [[0002-m3-block-storage-via-virtio-blk]]
+- [[0002-interactive-serial-console]], [[0004-block-storage-via-virtio-blk]]

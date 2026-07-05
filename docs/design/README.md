@@ -32,7 +32,9 @@ docz create design "Your Design Title"
 
 | ID | Title | Status | Date | Author | Link |
 |----|-------|--------|------|--------|------|
-| DESIGN-0001 | M2 — interactive serial console | Draft | 2026-07-05 | Donald Gifford | [0001-m2-interactive-serial-console.md](0001-m2-interactive-serial-console.md) |
-| DESIGN-0002 | M3 — block storage via virtio-blk | Draft | 2026-07-05 | Donald Gifford | [0002-m3-block-storage-via-virtio-blk.md](0002-m3-block-storage-via-virtio-blk.md) |
-| DESIGN-0003 | M4 — guest networking and SSH | Draft | 2026-07-05 | Donald Gifford | [0003-m4-guest-networking-and-ssh.md](0003-m4-guest-networking-and-ssh.md) |
+| DESIGN-0001 | Event loop and concurrency model | Draft | 2026-07-05 | Donald Gifford | [0001-event-loop-and-concurrency-model.md](0001-event-loop-and-concurrency-model.md) |
+| DESIGN-0002 | Interactive serial console | Draft | 2026-07-05 | Donald Gifford | [0002-interactive-serial-console.md](0002-interactive-serial-console.md) |
+| DESIGN-0003 | virtio-mmio device model | Draft | 2026-07-05 | Donald Gifford | [0003-virtio-mmio-device-model.md](0003-virtio-mmio-device-model.md) |
+| DESIGN-0004 | Block storage via virtio-blk | Draft | 2026-07-05 | Donald Gifford | [0004-block-storage-via-virtio-blk.md](0004-block-storage-via-virtio-blk.md) |
+| DESIGN-0005 | Guest networking and SSH | Draft | 2026-07-05 | Donald Gifford | [0005-guest-networking-and-ssh.md](0005-guest-networking-and-ssh.md) |
 <!-- END DOCZ AUTO-GENERATED -->

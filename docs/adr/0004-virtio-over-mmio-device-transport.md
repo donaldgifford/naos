@@ -76,4 +76,4 @@ Likely building blocks: rust-vmm's `virtio-device` / `virtio-queue` crates.
 
 - [[0002-microvm-first-incremental-milestone-ladder]]
 - [[0005-root-filesystem-initramfs-then-virtio-blk]], [[0006-guest-networking-via-virtio-net-and-tap]]
-- [[0002-m3-block-storage-via-virtio-blk]]
+- [[0003-virtio-mmio-device-model]]

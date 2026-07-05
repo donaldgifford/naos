@@ -77,4 +77,4 @@ the host providing connectivity via a bridge or NAT:
 
 - [[0002-microvm-first-incremental-milestone-ladder]], [[0004-virtio-over-mmio-device-transport]]
 - [[0010-guest-isolation-jailer]]
-- [[0003-m4-guest-networking-and-ssh]]
+- [[0005-guest-networking-and-ssh]]
