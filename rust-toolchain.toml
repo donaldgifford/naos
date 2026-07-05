@@ -8,5 +8,7 @@
 
 [toolchain]
 channel = "stable"
-components = ["rustfmt", "clippy"]
+# llvm-tools (formerly llvm-tools-preview) is required by cargo-llvm-cov for
+# coverage instrumentation; rustup installs it alongside the toolchain.
+components = ["rustfmt", "clippy", "llvm-tools"]
 profile = "default"

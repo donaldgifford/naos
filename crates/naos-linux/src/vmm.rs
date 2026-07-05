@@ -81,6 +81,19 @@ impl Vmm {
         vm.create_irq_chip()
             .context("Failed to create in-kernel IRQ chip")?;
 
+        // --- Step 4b: Create the in-kernel PIT (8254 timer) ---
+        // Early in boot the kernel calibrates its delay loop / TSC against the
+        // 8254 PIT: it programs channel 2 (ports 0x43/0x42), opens the gate via
+        // port 0x61, then polls the counter down to zero. Without a PIT those
+        // port accesses exit to userspace and we have nothing to answer them
+        // with — the counter never decrements, so the calibration loop spins
+        // forever and boot never progresses past it. Like the IRQ chip, the PIT
+        // lives entirely inside KVM (KVM_CREATE_PIT2): one ioctl, no userspace
+        // device, and it transparently handles ports 0x40-0x43 and the 0x61
+        // channel-2 gate so calibration completes.
+        vm.create_pit2(kvm_bindings::kvm_pit_config::default())
+            .context("Failed to create in-kernel PIT")?;
+
         // --- Step 5: Allocate and register guest memory ---
         let guest_mem = memory::build(mem_mib)?;
         memory::register(&vm, &guest_mem)?;
@@ -99,6 +112,21 @@ impl Vmm {
         // --- Step 9: Create and configure the vCPU ---
         // create_vcpu takes the vCPU index (0 for the first and only vCPU).
         let vcpu = vm.create_vcpu(0).context("Failed to create vCPU")?;
+
+        // --- Step 9b: Seed the guest CPUID ---
+        // KVM gives a freshly created vCPU an *empty* CPUID table. The kernel
+        // reads CPUID during the very first instructions of boot — in
+        // common_startup_64 it reads leaf 0x80000001 to decide which EFER bits
+        // (NXE, etc.) to set, then issues `wrmsr` to EFER. With no CPUID, that
+        // wrmsr writes a value KVM rejects with #GP, which (before the kernel's
+        // real IDT exists) cascades into a triple fault — the guest halts via
+        // KVM_EXIT_SHUTDOWN before printing a single byte. Copying the host's
+        // KVM-supported CPUID into the vCPU is what every KVM VMM does here.
+        let kvm_cpuid = kvm
+            .get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .context("Failed to query KVM-supported CPUID")?;
+        vcpu.set_cpuid2(&kvm_cpuid)
+            .context("Failed to set guest CPUID")?;
 
         // Configure CPU registers: GDT, page tables, control registers,
         // segment registers, RIP, RSI, RFLAGS.

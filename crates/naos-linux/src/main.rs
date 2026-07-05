@@ -46,3 +46,44 @@ fn main() -> Result<()> {
 
     vmm.run()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[test]
+    fn defaults_apply_when_only_kernel_is_given() {
+        let args = Args::try_parse_from(["naos-linux", "--kernel", "/k"]).unwrap();
+        assert_eq!(args.kernel, PathBuf::from("/k"));
+        assert_eq!(args.mem, 256);
+        assert_eq!(args.cmdline, "console=ttyS0 reboot=k panic=1 pci=off");
+    }
+
+    #[test]
+    fn explicit_flags_override_defaults() {
+        let args = Args::try_parse_from([
+            "naos-linux",
+            "--kernel",
+            "/k",
+            "--mem",
+            "512",
+            "--cmdline",
+            "quiet",
+        ])
+        .unwrap();
+        assert_eq!(args.mem, 512);
+        assert_eq!(args.cmdline, "quiet");
+    }
+
+    #[test]
+    fn kernel_argument_is_required() {
+        assert!(Args::try_parse_from(["naos-linux"]).is_err());
+    }
+
+    #[test]
+    fn non_numeric_mem_is_rejected() {
+        assert!(Args::try_parse_from(["naos-linux", "--kernel", "/k", "--mem", "lots"]).is_err());
+    }
+}
