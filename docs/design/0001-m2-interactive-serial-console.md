@@ -32,6 +32,13 @@ created: 2026-07-05
 - [Testing Strategy](#testing-strategy)
 - [Migration / Rollout Plan](#migration--rollout-plan)
 - [Open Questions](#open-questions)
+  - [1. Event-loop implementation](#1-event-loop-implementation)
+  - [2. vCPU-thread wakeup mechanism](#2-vcpu-thread-wakeup-mechanism)
+  - [3. initramfs placement in guest RAM](#3-initramfs-placement-in-guest-ram)
+  - [4. cmdline handling when an initramfs is present](#4-cmdline-handling-when-an-initramfs-is-present)
+  - [5. Host escape hatch with ISIG off](#5-host-escape-hatch-with-isig-off)
+  - [6. Serial device sharing granularity](#6-serial-device-sharing-granularity)
+  - [7. busybox provenance](#7-busybox-provenance)
 - [References](#references)
 <!--toc:end-->
 
@@ -380,27 +387,82 @@ committed) artifact, mirroring `testdata/vmlinux`.
 
 ## Open Questions
 
-- **`event-manager` vs a hand-rolled epoll wrapper.** ADR-0003 left this to
-  implementation; decide once the loop has exactly one real subscriber (stdin)
-  plus `exit_evt`, and revisit when virtio adds subscribers at M3.
-- **vCPU-thread wakeup mechanism.** `set_kvm_immediate_exit` + a signal vs. a
-  dedicated wakeup: confirm which reliably breaks an in-flight `KVM_RUN` on this
-  kernel, and where the no-op signal handler is installed.
-- **initramfs placement policy.** Exact top-down base and alignment, and the
-  guard that rejects an image that would collide with the kernel or exceed guest
-  RAM.
-- **cmdline handling when an initramfs is present.** Keep `--cmdline`'s default
-  fixed and require the user to drop `panic=1`, or derive an interactive default
-  (add `rdinit=/init`, drop `panic=1`) automatically when `--initramfs` is set?
-- **Host escape hatch.** With `ISIG` off, how does the operator force-exit a
-  wedged guest — a recognized escape sequence on stdin (e.g. the QEMU-style
-  `Ctrl-a x`), or rely on killing the process?
-- **Serial device sharing granularity.** `Arc<Mutex<Serial>>` is simplest; if
-  lock hold time ever matters, split TX (vCPU thread) from RX (I/O thread). Not
-  expected to matter at M2.
-- **busybox provenance.** Build static busybox from source in the artifact script
-  vs. vendor a known-good static binary; and whether `/dev/console` comes from a
-  cpio-baked node or purely from devtmpfs auto-mount.
+Each item is a decision to settle before this design moves from Draft to
+Approved. Option **a** is the recommendation; **b** onward are alternatives;
+**other** is a write-in. Record the choice on the **Decision** line.
+
+### 1. Event-loop implementation
+
+- **a (recommended).** A thin hand-rolled epoll wrapper over `vmm-sys-util` — at
+  M2 the loop has one real subscriber (stdin) plus `exit_evt`, so the minimal
+  thing wins; reconsider `event-manager` at M3 when devices multiply.
+- **b.** Adopt `event-manager` now, taking a heavier dependency to avoid a
+  rewrite when virtio adds subscribers.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 2. vCPU-thread wakeup mechanism
+
+- **a (recommended).** `set_kvm_immediate_exit(1)` plus a no-op `SIGUSR1` to the
+  vCPU thread (the Firecracker approach); confirm it reliably breaks an in-flight
+  `KVM_RUN` and settle where the handler is installed.
+- **b.** No forced wakeup — rely only on the guest's own `Hlt`/reset to end the
+  loop; simpler, but cannot stop a wedged guest.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 3. initramfs placement in guest RAM
+
+- **a (recommended).** Load top-down from the top of guest RAM, page-aligned,
+  with a guard that rejects an image overlapping the kernel or larger than RAM.
+- **b.** A fixed low load address (Firecracker-style); simpler, less flexible for
+  large images.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 4. cmdline handling when an initramfs is present
+
+- **a (recommended).** Derive an interactive default when `--initramfs` is set
+  (append `rdinit=/init`, drop `panic=1`) unless the user overrides `--cmdline`.
+- **b.** Keep the `--cmdline` default fixed and require the user to pass an
+  interactive cmdline themselves.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 5. Host escape hatch with ISIG off
+
+- **a (recommended).** A recognized stdin escape sequence (QEMU-style
+  `Ctrl-a x`) that force-exits naos.
+- **b.** No in-band escape — the operator kills the process from another
+  terminal.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 6. Serial device sharing granularity
+
+- **a (recommended).** A single `Arc<Mutex<Serial>>`; contention is negligible at
+  serial rates.
+- **b.** Split TX (vCPU thread) from RX (I/O thread) locks if hold time ever
+  matters.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 7. busybox provenance
+
+- **a (recommended).** Build a static busybox from source in the artifact script
+  (consistent with building the test kernel from source), and rely on devtmpfs
+  auto-mount for `/dev` with a cpio-baked `/dev/console` fallback.
+- **b.** Vendor a known-good prebuilt static busybox binary — faster, less build
+  machinery.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
 
 ## References
 

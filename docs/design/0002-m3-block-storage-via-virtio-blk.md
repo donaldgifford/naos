@@ -32,6 +32,12 @@ created: 2026-07-05
 - [Testing Strategy](#testing-strategy)
 - [Migration / Rollout Plan](#migration--rollout-plan)
 - [Open Questions](#open-questions)
+  - [1. MMIO base, per-device stride, and GSI](#1-mmio-base-per-device-stride-and-gsi)
+  - [2. Drive flag naming and multi-disk shape](#2-drive-flag-naming-and-multi-disk-shape)
+  - [3. Block-device locking granularity](#3-block-device-locking-granularity)
+  - [4. virtio-device and virtio-queue API surface](#4-virtio-device-and-virtio-queue-api-surface)
+  - [5. In-place reboot versus relaunch](#5-in-place-reboot-versus-relaunch)
+  - [6. Write durability policy](#6-write-durability-policy)
 - [References](#references)
 <!--toc:end-->
 
@@ -442,30 +448,72 @@ byte-for-byte M2 behavior, so M3 cannot regress M2.
 
 ## Open Questions
 
-- **Exact MMIO base, per-device stride, and GSI.** `0xd0000000`, `0x1000`, and
-  GSI 5 are reasonable (Firecracker-adjacent) defaults but should be confirmed
-  against the IOAPIC's available GSIs and the guest kernel's expectations before
-  they are hardcoded — the same "confirm the addresses" caveat the MVP raised for
-  the GDT/page-table placement.
-- **Flag naming.** `--drive` vs `--rootfs`, and how a future second disk is
-  spelled (repeatable `--drive`, an index suffix, a small spec string). Decide
-  when wiring `clap`.
-- **Locking granularity.** One `Mutex` over the whole `VirtioBlk` vs. a
-  finer split (config behind a mutex, the ring lock-free, `InterruptStatus`
-  atomic). Start coarse; revisit if the vCPU thread contends with the I/O thread.
-- **`virtio-device` / `virtio-queue` API surface.** The exact traits to
-  implement (`VirtioDevice` and the MMIO transport helper) and how much of the
-  register decode those crates provide vs. what naos writes by hand — pin down
-  against the published crate versions before coding, rather than assuming an
-  API here.
-- **In-place reboot.** M3 treats a guest reset as a clean VMM exit (M2 behavior),
-  so "reboot" in the success criterion is a relaunch. Real in-guest reboot
-  (reset the vCPU and device state, re-run without exiting) is deferred; is a
-  relaunch acceptable for the demo, or should M3 do a true reset?
-- **Write durability policy.** Honor guest `FLUSH` only (fast, correct for a
-  well-behaved guest), or also `O_DIRECT`/periodic `fsync` for safety against
-  host crashes? Tied to whether we ever advertise a writeback-cache feature.
-  Raw image only for M3; qcow2 is its own subsystem and out of scope.
+Each item is a decision to settle before this design moves from Draft to
+Approved. Option **a** is the recommendation; **b** onward are alternatives;
+**other** is a write-in. Record the choice on the **Decision** line.
+
+### 1. MMIO base, per-device stride, and GSI
+
+- **a (recommended).** Keep the proposed `0xd0000000` base, `0x1000` stride, and
+  GSI 5, but confirm against the IOAPIC's available GSIs and the guest kernel's
+  expectations before hardcoding — the "confirm the addresses" caveat the MVP
+  raised for the GDT/page-table placement.
+- **b.** Adopt Firecracker's exact virtio-mmio layout verbatim to minimize
+  novelty.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 2. Drive flag naming and multi-disk shape
+
+- **a (recommended).** A repeatable `--drive <path>` (with `--rootfs` as an alias
+  for the boot disk); each occurrence adds a disk in order.
+- **b.** A small spec string (`--drive path=…,readonly=…`) for richer per-disk
+  options.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 3. Block-device locking granularity
+
+- **a (recommended).** Start coarse — one `Mutex` over the whole `VirtioBlk`;
+  revisit only if the vCPU thread contends with the I/O thread.
+- **b.** A finer split up front: config behind a mutex, the ring lock-free,
+  `InterruptStatus` atomic.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 4. virtio-device and virtio-queue API surface
+
+- **a (recommended).** Pin the exact traits and transport/queue helpers against
+  the published crate versions before coding; use what the crates provide and
+  hand-write only the register decode they do not.
+- **b.** Hand-roll the virtio-mmio register decode and queue handling, using the
+  crates only for the descriptor types.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 5. In-place reboot versus relaunch
+
+- **a (recommended).** Accept relaunch for M3 — a guest reset is a clean VMM exit
+  (M2 behavior); defer a true in-guest reset (reset vCPU + device state and
+  re-run without exiting) to a later milestone.
+- **b.** Implement a real in-guest reboot now.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 6. Write durability policy
+
+- **a (recommended).** Honor guest `FLUSH` only — fast and correct for a
+  well-behaved guest; raw image only, no writeback-cache feature advertised
+  (qcow2 is its own subsystem, out of scope).
+- **b.** Also use `O_DIRECT` or periodic `fsync` for safety against host crashes.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
 
 ## References
 

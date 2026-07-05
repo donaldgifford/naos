@@ -33,6 +33,13 @@ created: 2026-07-05
 - [Testing Strategy](#testing-strategy)
 - [Migration / Rollout Plan](#migration--rollout-plan)
 - [Open Questions](#open-questions)
+  - [1. RX backpressure with no posted buffers](#1-rx-backpressure-with-no-posted-buffers)
+  - [2. virtio-mmio layout for the net device](#2-virtio-mmio-layout-for-the-net-device)
+  - [3. virtio-queue and virtio-device API specifics](#3-virtio-queue-and-virtio-device-api-specifics)
+  - [4. MAC address assignment](#4-mac-address-assignment)
+  - [5. DHCP versus static as the default](#5-dhcp-versus-static-as-the-default)
+  - [6. Where connectivity setup lives](#6-where-connectivity-setup-lives)
+  - [7. CI capability for the SSH test](#7-ci-capability-for-the-ssh-test)
 - [References](#references)
 <!--toc:end-->
 
@@ -448,27 +455,78 @@ the pre-created-tap mode.
 
 ## Open Questions
 
-- **RX backpressure.** When the guest has posted no RX buffers, do we drop the
-  frame, or stop reading the tap (leave it readable) until buffers appear and
-  rely on TCP retransmit? Dropping is simplest; deferring is gentler on the
-  guest. Decide against a real `iperf`/`ssh` workload.
-- **Exact virtio-mmio base/size/IRQ for the net device.** Pinned constants
-  adjacent to the block device's; confirm they do not collide with the M3 layout
-  or the guest kernel's expectations before wiring.
-- **`virtio-queue` / `virtio-device` API specifics.** The precise types for
-  iterating descriptor chains, signalling used rings, and wiring config space
-  are whatever the pinned crate versions expose; confirm against `docs.rs` when
-  coding rather than assuming a shape here.
-- **MAC assignment.** Derive deterministically from the tap name, or require
-  `--mac`? A derived locally-administered address is the proposed default.
-- **DHCP vs static as the shipped default.** Static `/30` is proposed for
-  determinism; a host `dnsmasq` is friendlier for multiple/bridged VMs. May
-  ship static now and add DHCP with the bridge path.
-- **Where the connectivity setup lives.** A `just` recipe and a `scripts/`
-  helper for M4; whether it eventually moves into a privileged setup phase of the
-  VMM (or the future jailer) is deferred.
-- **CI capability.** Can the CI runners grant `CAP_NET_ADMIN` for the end-to-end
-  SSH test, or does that test stay a documented manual gate like the KVM tests?
+Each item is a decision to settle before this design moves from Draft to
+Approved. Option **a** is the recommendation; **b** onward are alternatives;
+**other** is a write-in. Record the choice on the **Decision** line.
+
+### 1. RX backpressure with no posted buffers
+
+- **a (recommended).** Stop reading the tap (leave it readable) until the guest
+  posts RX buffers, relying on TCP retransmit — gentler on the guest, no frame
+  loss. Validate against a real `iperf`/`ssh` workload.
+- **b.** Drop the frame — simplest, and what real hardware does on RX overflow.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 2. virtio-mmio layout for the net device
+
+- **a (recommended).** Allocate the net device the next slot after the block
+  device in the M3 MMIO/GSI layout; confirm no collision with M3 or the guest
+  kernel's expectations before wiring.
+- **b.** Carve out a separate reserved MMIO/GSI region for network devices.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 3. virtio-queue and virtio-device API specifics
+
+- **a (recommended).** Confirm the exact types (descriptor-chain iteration,
+  used-ring signalling, config space) against `docs.rs` for the pinned crate
+  versions when coding, rather than assuming a shape now.
+- **b.** Hand-roll queue handling over the raw descriptor types.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 4. MAC address assignment
+
+- **a (recommended).** Derive a deterministic locally-administered MAC from the
+  tap name.
+- **b.** Require an explicit `--mac`.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 5. DHCP versus static as the default
+
+- **a (recommended).** Ship a static `/30` point-to-point for determinism now;
+  add DHCP (host `dnsmasq`) alongside the bridge path later.
+- **b.** DHCP via a host `dnsmasq` from the start — friendlier for multiple or
+  bridged VMs.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 6. Where connectivity setup lives
+
+- **a (recommended).** A `just` recipe plus a `scripts/` helper for M4; defer
+  moving tap/NAT setup into a privileged VMM phase (or the future jailer,
+  [[0010-guest-isolation-jailer]]).
+- **b.** Build tap/NAT setup into naos itself as a privileged setup phase now.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
+
+### 7. CI capability for the SSH test
+
+- **a (recommended).** Keep the SSH end-to-end test a documented manual gate
+  (like the KVM-gated tests) unless runners can grant `CAP_NET_ADMIN`.
+- **b.** Run it in CI on a privileged or self-hosted runner that grants
+  `CAP_NET_ADMIN`.
+- **other.** *(write-in)*
+
+**Decision:** *pending*
 
 ## References
 
