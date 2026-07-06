@@ -255,7 +255,7 @@ guards. A shared `exit_evt: EventFd` (registered as a loop subscriber) plus an
 - **New internal module** (`event_loop` / `io`): the loop, the `Subscriber` trait,
   and helpers to register irqfd/ioeventfd. `vcpu::run` keeps its exit-dispatch
   semantics but gains the stop-flag check and the `exit_evt` signal on break.
-- **New dependency:** `event-manager` (pending Open Questions §1); `vmm-sys-util`
+- **New dependency:** `event-manager` (Open Questions §1, decided); `vmm-sys-util`
   (already present) supplies `EventFd` and epoll.
 
 ## Data Model
@@ -334,7 +334,7 @@ The load-bearing decision — this substrate carries every future device.
   case, on the one component that must not be fragile.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — event-manager.
 
 ### 2. vCPU wakeup mechanism
 
@@ -347,7 +347,7 @@ How the host side breaks an in-flight `KVM_RUN`.
   loop; simplest, but cannot stop a wedged or compute-bound guest.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — immediate-exit + no-op SIGUSR1.
 
 ### 3. Loop thread topology
 
@@ -357,7 +357,7 @@ How the host side breaks an in-flight `KVM_RUN`.
   orchestrating — cleaner separation, one more thread to coordinate.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — main thread runs the loop.
 
 ### 4. Shared-device locking granularity
 
@@ -367,7 +367,7 @@ How the host side breaks an in-flight `KVM_RUN`.
 - **b.** Finer-grained splits (config vs data path, lock-free rings) up front.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — coarse `Arc<Mutex>` per device.
 
 ### 5. Fatal-error and panic teardown policy
 
@@ -379,7 +379,7 @@ How the host side breaks an in-flight `KVM_RUN`.
   restoration — unacceptable once the terminal is in raw mode).
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — signal, join, run guards, non-zero exit; panic to error.
 
 ### 6. Multi-vCPU forward-compatibility
 
@@ -389,7 +389,7 @@ How the host side breaks an in-flight `KVM_RUN`.
 - **b.** Bake in single-vCPU assumptions and refactor when SMP is actually built.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — stay vCPU-count-agnostic; implement one.
 
 ## References
 
