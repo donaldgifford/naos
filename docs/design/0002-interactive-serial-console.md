@@ -386,7 +386,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   for large images.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — top-down, page-aligned, with an overlap/oversize guard.
 
 ### 2. cmdline handling when an initramfs is present
 
@@ -396,7 +396,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   interactive cmdline themselves.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — derive an interactive default unless `--cmdline` is given.
 
 ### 3. Host escape hatch with ISIG off
 
@@ -406,7 +406,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   terminal.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — QEMU-style `Ctrl-a x` escape.
 
 ### 4. busybox provenance
 
@@ -417,7 +417,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   machinery.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — build static busybox from source.
 
 ## References
 
