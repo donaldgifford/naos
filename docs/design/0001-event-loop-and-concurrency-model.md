@@ -113,39 +113,39 @@ correctness protocol, not the epoll plumbing, is the substance of this document.
 
 ### 1. Threading model
 
-Three roles across two spawned contexts and the main thread:
+Three threads: a supervisor (the main thread), a dedicated event-loop thread, and
+a vCPU thread (topology per Open Questions §3).
 
 ```text
- main thread ─────────────────────────────────────────────
-   Vmm::new()                      (KVM/VM/mem/vCPU setup, unchanged order)
-   build event loop + exit_evt
-   register KVM primitives (irqfd/ioeventfd) for devices
-   spawn vCPU thread ─────────────┐
-   run event loop (this thread)   │
-        │                         ▼
-   ┌────┴───────────┐        vCPU thread
-   │ epoll_wait      │       loop {
-   │  • subscriber fd│         match KVM_RUN {
-   │    → callback   │           device PIO/MMIO → dispatch (locks device)
-   │  • exit_evt     │           Hlt/Shutdown/reset → request_exit(); break
-   │    → break loop │           other            → fatal(err); break
-   └────────────────┘         }
-                              }  ── on break: signal exit_evt
-   join vCPU thread; run teardown guards; return exit status
+ main thread (supervisor)
+   Vmm::new()  (KVM/VM/mem/vCPU setup)
+   build event loop + exit_evt; register irqfd/ioeventfd for devices
+   spawn vCPU thread ─────────┐        spawn event-loop thread ─────────┐
+   join both; teardown guards │                                         │
+   return exit status         ▼                                         ▼
+                        vCPU thread                             event-loop thread
+                        loop KVM_RUN:                           EventManager::run:
+                          PIO/MMIO  → dispatch (lock device)      subscriber fd → callback
+                          Hlt/reset → break                       exit_evt      → break
+                          other     → fatal; break
+                          on break: signal exit_evt              on break: signal exit_evt
 ```
 
+- **Main thread (supervisor).** Owns `Vmm` (`Kvm`, `VmFd`, the `Arc` guest
+  memory), spawns the vCPU and event-loop threads, then blocks joining both. It
+  does nothing else for a single VM today, but it is the seam a future control
+  plane / multi-VM supervisor ([[0007-management-and-control-api]]) grows into —
+  going multi-VM becomes "supervise N runtimes instead of one," not a substrate
+  rewrite.
 - **vCPU thread.** Owns the `VcpuFd`, blocks in `KVM_RUN`, and handles synchronous
-  exits (device port/MMIO access, halt, reset). It is the only thread that touches
-  the `VcpuFd`.
-- **Event-loop thread.** Here, the main thread *becomes* the event loop after
-  spawning the vCPU thread — no third thread. It owns the epoll fd and dispatches
-  subscriber callbacks. (Whether the loop gets its own thread instead is an Open
-  Question.)
+  exits (device port/MMIO access, halt, reset). The only thread that touches the
+  `VcpuFd`.
+- **Event-loop thread.** Owns the epoll fd (the `event-manager` `EventManager`,
+  Open Questions §1) and dispatches subscriber callbacks on readiness.
 - **Ownership and lifetime.** KVM requires `VmFd` to outlive `VcpuFd`, and guest
-  memory to outlive `VmFd`. `Vmm` (owning `Kvm`, `VmFd`, and the `Arc` memory)
-  stays on the main thread; the `VcpuFd` is *moved* into the vCPU thread, which is
-  **joined before** `Vmm` drops. The drop-order invariant the MVP relies on is
-  preserved across the thread boundary because the join is a hard barrier.
+  memory to outlive `VmFd`. `Vmm` stays on the supervisor thread; the `VcpuFd` is
+  *moved* into the vCPU thread. The supervisor **joins both threads before** `Vmm`
+  drops, so the KVM fd drop-order invariant holds across the thread boundaries.
 
 ### 2. The event loop and the subscriber interface
 
@@ -204,9 +204,9 @@ guards. A shared `exit_evt: EventFd` (registered as a loop subscriber) plus an
 
 - **Guest-initiated (the normal path).** The vCPU thread breaks its loop on `Hlt`,
   `Shutdown`, or a recognized reset-port write (the existing `is_reset_request`
-  path — a guest `poweroff` lands here), then writes `exit_evt`. The loop wakes on
-  `exit_evt`, returns from `epoll_wait`, the main thread joins the vCPU thread and
-  returns exit 0.
+  path — a guest `poweroff` lands here), then writes `exit_evt`. The event-loop
+  thread wakes on `exit_evt` and returns from `epoll_wait`; the supervisor joins
+  both threads and returns exit 0.
 - **Host-initiated (error, or operator request in a later design).** The loop must
   stop a vCPU that may be blocked inside `KVM_RUN`. It sets the stop flag, calls
   `VcpuFd::set_kvm_immediate_exit(1)`, and sends the vCPU thread a signal with a
@@ -250,8 +250,8 @@ guards. A shared `exit_evt: EventFd` (registered as a loop subscriber) plus an
 - **No CLI or output change.** Same flags, same boot-to-panic behavior, same exit
   codes. This milestone is invisible to a user running `just run`.
 - **`vmm::Vmm::run`** stops calling `vcpu::run` directly: it spawns the vCPU
-  thread (moving in the `VcpuFd` and the shared `Arc`s) and drives the event loop,
-  then joins and returns the vCPU thread's result.
+  thread (moving in the `VcpuFd`) and the event-loop thread, then joins both and
+  returns the run result.
 - **New internal module** (`event_loop` / `io`): the loop, the `Subscriber` trait,
   and helpers to register irqfd/ioeventfd. `vcpu::run` keeps its exit-dispatch
   semantics but gains the stop-flag check and the `exit_evt` signal on break.
@@ -351,13 +351,18 @@ How the host side breaks an in-flight `KVM_RUN`.
 
 ### 3. Loop thread topology
 
-- **a (recommended).** vCPU on a spawned thread; the main thread *becomes* the
-  event loop (two contexts, no third thread). Simplest ownership and join.
-- **b.** vCPU thread + a dedicated event-loop thread, with the main thread only
-  orchestrating — cleaner separation, one more thread to coordinate.
+- **a.** vCPU on a spawned thread; the main thread *becomes* the event loop (two
+  contexts, no third thread). Simplest — the Firecracker / rust-vmm-reference
+  shape — but it couples the process's main thread to a single VM's runtime.
+- **b (recommended).** vCPU thread + a dedicated event-loop thread, with the main
+  thread supervising. The Cloud Hypervisor shape and a natural fit for
+  `event-manager` (§1); "run one VM" is already "one VM's runtime under a trivial
+  supervisor," so a control plane / multi-VM
+  ([[0007-management-and-control-api]]) is additive, not a substrate rewrite.
+  Costs one mostly-idle thread and a three-way shutdown now.
 - **other.** *(write-in)*
 
-**Decision:** a — main thread runs the loop.
+**Decision:** b — dedicated event-loop thread; the main thread supervises.
 
 ### 4. Shared-device locking granularity
 
