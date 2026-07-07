@@ -34,6 +34,7 @@ created: 2026-07-05
   - [1. Drive flag naming and multi-disk shape](#1-drive-flag-naming-and-multi-disk-shape)
   - [2. In-place reboot versus relaunch](#2-in-place-reboot-versus-relaunch)
   - [3. Write durability policy](#3-write-durability-policy)
+  - [4. Host I/O engine for network-backed storage](#4-host-io-engine-for-network-backed-storage)
 - [References](#references)
 <!--toc:end-->
 
@@ -75,8 +76,9 @@ irqfd/ioeventfd plumbing live in the substrate and are referenced, not re-explai
   ([[0003-virtio-mmio-device-model]]). This doc consumes that interface.
 - **Multiple queues.** One split virtqueue per block device; no multiqueue
   (`VIRTIO_BLK_F_MQ` stays off).
-- **Asynchronous or batched host I/O.** Synchronous `pread`/`pwrite`; no io_uring,
-  request coalescing, or write-back caching.
+- **Asynchronous or batched host I/O for the MVP.** Synchronous `pread`/`pwrite`;
+  no request coalescing or write-back caching. An io_uring async engine is the
+  planned enhancement for network-backed storage — see Open Questions.
 - **Rich image formats.** Raw images only — no qcow2, which is its own subsystem.
 - **Multiple disks, hotplug, resize, read-only images, discard/TRIM.** A single
   writable disk proves persistence; the extras (`VIRTIO_BLK_F_DISCARD`,
@@ -221,7 +223,7 @@ sector, malformed chain (wrong segment directions, missing status byte), or host
 I/O error yields `VIRTIO_BLK_S_IOERR`; an unknown `type` yields
 `VIRTIO_BLK_S_UNSUPP`. A request is failed back to the guest, never allowed to
 abort the VM. Host I/O is synchronous — the backend blocks in `pread`/`pwrite` on
-the I/O thread, acceptable for one disk (async is a Non-Goal) — and completions go
+the I/O thread, fine for a local disk (async deferred — see Open Questions) — and completions go
 out through the substrate's irqfd, so a serviced batch costs no userspace MMIO
 exits.
 
@@ -391,6 +393,25 @@ write-in. Record the choice on the **Decision** line.
 - **other.** *(write-in)*
 
 **Decision:** *pending*
+
+### 4. Host I/O engine for network-backed storage
+
+The MVP does synchronous `pread`/`pwrite` on the I/O thread — fine for a local
+image, but a network-backed disk (e.g. ZFS-over-iSCSI: the host attaches the
+remote zvol as a block device and the backend opens it like any other file) has
+high, variable latency, so a slow op stalls the VM's single I/O loop
+(head-of-line blocking for its other devices). Neither device model *blocks*
+network-backed storage; this is purely about the I/O engine.
+
+- **a (recommended).** Synchronous for the MVP; add an **io_uring** async engine
+  (Firecracker's `Async` block engine — submit + eventfd completion, the thread
+  never blocks) as the first enhancement once network-backed disks are in use.
+  Keeps the single I/O thread and the microVM-density profile.
+- **b.** A dedicated per-block-device worker thread (Cloud Hypervisor's model) so
+  a slow op blocks only that worker — but adds a thread per disk per VM.
+- **other.** *(write-in)*
+
+**Decision:** a — sync for the MVP, io_uring async engine for network-backed storage.
 
 ## References
 

@@ -133,10 +133,13 @@ a vCPU thread (topology per Open Questions §3).
 
 - **Main thread (supervisor).** Owns `Vmm` (`Kvm`, `VmFd`, the `Arc` guest
   memory), spawns the vCPU and event-loop threads, then blocks joining both. It
-  does nothing else for a single VM today, but it is the seam a future control
-  plane / multi-VM supervisor ([[0007-management-and-control-api]]) grows into —
-  going multi-VM becomes "supervise N runtimes instead of one," not a substrate
-  rewrite.
+  does nothing else for a single VM today, but it is where the process lifecycle
+  and a future per-VM control socket ([[0007-management-and-control-api]]) live —
+  kept separate from the VM's I/O loop, the way Firecracker keeps its API thread
+  separate from its VMM thread. Multiple VMs on a host come from running one such
+  process per VM (Firecracker's model, and what per-VM jailing needs), not from
+  this thread hosting several — so multi-VM is a control-plane concern above the
+  process, not a change to this substrate.
 - **vCPU thread.** Owns the `VcpuFd`, blocks in `KVM_RUN`, and handles synchronous
   exits (device port/MMIO access, halt, reset). The only thread that touches the
   `VcpuFd`.
@@ -372,7 +375,7 @@ How the host side breaks an in-flight `KVM_RUN`.
 - **b.** Finer-grained splits (config vs data path, lock-free rings) up front.
 - **other.** *(write-in)*
 
-**Decision:** a — coarse `Arc<Mutex>` per device.
+**Decision:** a — coarse `Arc<Mutex>` per device (config + queue), with an atomic interrupt status. Firecracker's model, verified against source (see [[0003-virtio-mmio-device-model]]).
 
 ### 5. Fatal-error and panic teardown policy
 

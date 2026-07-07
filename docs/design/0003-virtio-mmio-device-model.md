@@ -443,7 +443,7 @@ consumer docs.
   novelty.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — proposed `0xd0000000` / `0x1000` / GSI-from-5, confirmed against the IOAPIC and guest kernel before hardcoding.
 
 ### 2. virtio-device and virtio-queue API surface
 
@@ -454,7 +454,7 @@ consumer docs.
   for the descriptor types.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — lean on `virtio-device` / `virtio-queue`; hand-write only the virtio-mmio register decode.
 
 ### 3. Transport locking granularity
 
@@ -465,7 +465,7 @@ consumer docs.
   interrupt atomic.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — coarse `Mutex` (config + queue) with an atomic `InterruptStatus`. This is exactly Firecracker's model (verified in source); Cloud Hypervisor's finer per-queue-worker split only pays off with per-queue threads, which naos's single event-loop thread and microVM-density goals do not call for. Revisit under measured contention.
 
 ### 4. Device-slot table shape
 
@@ -476,7 +476,7 @@ consumer docs.
   dynamically, anticipating hotplug.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — fixed slot array; defer `vm-allocator` until dynamic placement (hotplug or many devices) forces it, keeping the MVP's minimal-dependency stance.
 
 ## References
 
