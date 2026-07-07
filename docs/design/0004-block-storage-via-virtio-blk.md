@@ -370,7 +370,7 @@ write-in. Record the choice on the **Decision** line.
   per-disk options, even though read-only and multi-disk are Non-Goals today.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — `--drive <path>` (with `--rootfs` alias), shaped to grow into a repeatable spec string when per-disk options land (e.g. `direct=on` for network/block disks, `readonly`).
 
 ### 2. In-place reboot versus relaunch
 
@@ -381,7 +381,7 @@ write-in. Record the choice on the **Decision** line.
   re-run without exiting).
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — relaunch; a guest reset stays a clean VMM exit, and in-guest reset is deferred.
 
 ### 3. Write durability policy
 
@@ -392,7 +392,7 @@ write-in. Record the choice on the **Decision** line.
   host crash between guest flushes.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — honor guest `FLUSH` (advertise `VIRTIO_BLK_F_FLUSH`, `fsync` on it); no periodic host `fsync`. Host-cache mode is a per-disk option — buffered for local file images, `O_DIRECT` for block devices and network-backed storage (iSCSI).
 
 ### 4. Host I/O engine for network-backed storage
 
