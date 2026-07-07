@@ -50,3 +50,11 @@ MD030: false
 # https://github.com/DavidAnson/markdownlint/blob/main/doc/md033.md
 MD033: false
 # allowed_elements: ["a", "img", "div"]
+
+# Multiple headings with the same content
+# The docz IMPL template repeats "Tasks" and "Success Criteria" under each phase
+# heading. siblings_only allows duplicate headings as long as they are not
+# siblings (they sit under different phase parents), which is exactly this shape.
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/md024.md
+MD024:
+  siblings_only: true
