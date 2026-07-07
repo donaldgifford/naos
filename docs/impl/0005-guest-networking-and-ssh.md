@@ -336,7 +336,7 @@ to a pre-created one.
   `CAP_NET_ADMIN` in the VMM for the VM's whole lifetime.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — `TUNSETIFF` with `IFF_TAP | IFF_NO_PI`, multiqueue off, attach-only to a tap the setup script created; naos never holds `CAP_NET_ADMIN`.
 
 ### 2. Defer and re-arm against the event loop
 
@@ -352,7 +352,7 @@ edge readiness, and when to re-check or re-register the tap fd.
   stall.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — keep the tap fd registered level-triggered; on an empty RX ring, stop reading and set a deferred flag, then resume draining on the next RX `QueueNotify`.
 
 ### 3. The MAC derivation function
 
@@ -366,7 +366,7 @@ How the deterministic locally-administered MAC is derived from the tap name.
   hash.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — hash the tap name into the low five octets and fix the first octet to a locally-administered unicast value (set bit 1, clear bit 0).
 
 ### 4. Scripting the manual SSH gate
 
@@ -381,7 +381,7 @@ required in CI.
   on every push.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — a `just ssh-gate` recipe plus a gated `tests/net_e2e.rs` that skips without `/dev/kvm` and a tap, documented in DEVELOPMENT.
 
 ## File Changes
 

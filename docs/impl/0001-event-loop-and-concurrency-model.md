@@ -318,7 +318,7 @@ are honored above; these are narrower.
   device is shared with the vCPU thread.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — parameterize `EventManager` over `Arc<Mutex<dyn MutEventSubscriber + Send>>` and pin `event-manager` to the `~0.4` line; confirm the `remote_endpoint` need alongside the wakeup path in OQ2.
 
 ### 2. SIGUSR1 handler placement and vCPU thread wakeup
 
@@ -334,7 +334,7 @@ are honored above; these are narrower.
   is not interrupted until the next natural exit.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — install the no-op `SIGUSR1` handler process-wide in `main` before spawning, publish the vCPU thread's `pthread_t`, and `pthread_kill` it after `set_kvm_immediate_exit`.
 
 ### 3. Serial path placement in this milestone
 
@@ -348,7 +348,7 @@ are honored above; these are narrower.
   adds a subscriber the design's migration says this milestone should not need.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — keep serial PIO inline on the vCPU thread (output-only) this milestone; the stdin subscriber and shared `Arc<Mutex<Serial>>` arrive with IMPL-0002.
 
 ### 4. Surfacing vCPU thread errors to the supervisor
 
@@ -361,7 +361,7 @@ are honored above; these are narrower.
   vCPUs later, but adds a lock and a second place the outcome can live.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — carry the run outcome as the vCPU thread's `JoinHandle<Result<()>>` payload, using `exit_evt` only as the cross-thread wakeup.
 
 ## File Changes
 

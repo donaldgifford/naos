@@ -331,7 +331,7 @@ registered eventfd is the more common integration and matches Firecracker's
   and more finicky readiness contract.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — use the tokio-rs `io-uring` crate pinned to a current `0.7.x`, register a completion `EventFd` via `Submitter::register_eventfd`, and subscribe it to the event loop.
 
 ### 2. Shipping the synchronous engine as a fallback
 
@@ -347,7 +347,7 @@ validation stepping stone.
   async path works, minimizing surface area.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — keep the synchronous engine behind the `BlockEngine` interface as a supported, selectable fallback (default async); it is the reference the async path is tested against and the safe choice on restricted hosts.
 
 ### 3. Direct cache mode alignment with guest buffers
 
@@ -365,7 +365,7 @@ RAM at arbitrary offsets, so zero-copy submission may violate alignment.
   fragile against real drivers.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — bounce a misaligned segment through an aligned host buffer under `O_DIRECT`, and submit zero-copy when the guest segment already satisfies alignment.
 
 ### 4. Disk image format for tests
 
@@ -376,7 +376,7 @@ RAM at arbitrary offsets, so zero-copy submission may violate alignment.
   a production image pipeline but out of scope for this milestone.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — raw images only: a small `mkfs.ext4` raw file for e2e and temp raw files for unit tests, with no format layer.
 
 ## File Changes
 

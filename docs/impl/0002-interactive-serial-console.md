@@ -325,7 +325,7 @@ source design. These are implementation-level details only.
   hook to cover unwinding. More moving parts and easy to leak on an early return.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — a `RawTermGuard` that saves `termios` and restores it in `Drop`, covering scope exit, `?` propagation, and panic unwind.
 
 ### 2. Detecting the Ctrl-a x escape sequence
 
@@ -340,7 +340,7 @@ source design. These are implementation-level details only.
   design's QEMU-style choice.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — a byte-level state machine on the host RX path, before `enqueue_raw_bytes`, that consumes `Ctrl-a` and dispatches on the next byte.
 
 ### 3. Where the initramfs lands in the current memory map
 
@@ -354,7 +354,7 @@ source design. These are implementation-level details only.
   own BSS.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — compute the load address top-down from the top of the single guest RAM region, page-aligned, and reject an image that overlaps the kernel or runs past RAM.
 
 ### 4. Producing a statically linked busybox
 
@@ -366,7 +366,7 @@ source design. These are implementation-level details only.
   binary, at the cost of an extra toolchain dependency in `DEVELOPMENT.md`.
 - **other** — *write-in*
 
-**Decision:** *pending*
+**Decision:** a — build busybox with the host glibc toolchain and `--static` (`CONFIG_STATIC=y`), falling back to a musl cross-toolchain only if glibc static linking proves unreliable.
 
 ## File Changes
 

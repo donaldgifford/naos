@@ -328,7 +328,7 @@ it.
   window) so large `--mem` relocates RAM above the window, as production VMMs do.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — keep base `0xd0000000`, `0x1000` stride, and GSIs from 5, and add a guard that rejects or clamps a `--mem` whose RAM top would reach the window.
 
 ### 2. Whether to depend on the unpublished virtio-device crate or define the trait in-crate
 
@@ -342,7 +342,7 @@ it.
   to reuse its status/feature helpers verbatim, accepting a git dependency.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — define `VirtioDevice` and `Interrupt` in-crate and depend only on `virtio-queue` 0.17.0 and `virtio-bindings` 0.2.7; the singular `virtio-device` crate is unpublished.
 
 ### 3. How the vCPU-thread MMIO dispatch coordinates with the coarse device mutex
 
@@ -356,7 +356,7 @@ it.
   handling.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — config-plane register access on the vCPU thread takes the device `Mutex` briefly per MMIO exit, the I/O thread takes it for `process_queue`, and `InterruptStatus` stays an `AtomicU32`.
 
 ### 4. Whether guest memory moves from GuestMemoryMmap to GuestMemoryAtomic
 
@@ -370,7 +370,7 @@ it.
   `memory.rs`.
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — share guest memory with the backend as `GuestMemoryAtomic<GuestMemoryMmap>`, confirming it composes with the single-region build and leaves `kernel::load`/`boot` (which take `&GuestMemoryMmap`) undisturbed.
 
 ### 5. What the minimal test device should be
 
@@ -383,7 +383,7 @@ it.
   test ahead of [[0004-block-storage-via-virtio-blk]].
 - **other** — *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — a loopback/echo device with a single queue and empty config space that copies readable buffers into writable buffers on `process_queue`.
 
 ## File Changes
 
