@@ -474,7 +474,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 - **b.** Drop the frame — simplest, and what real hardware does on RX overflow.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — stop reading the tap until the guest posts RX buffers (Firecracker's defer-and-re-arm); no frame loss.
 
 ### 2. virtio-mmio layout for the net device
 
@@ -484,7 +484,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 - **b.** Carve out a separate reserved MMIO/GSI region for network devices.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — the next free slot in the fixed device-slot array, after the block device.
 
 ### 3. virtio-queue and virtio-device API specifics
 
@@ -494,7 +494,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 - **b.** Hand-roll queue handling over the raw descriptor types.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — lean on `virtio-device` / `virtio-queue`; confirm the exact types against `docs.rs` when coding.
 
 ### 4. MAC address assignment
 
@@ -503,7 +503,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 - **b.** Require an explicit `--mac`.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — derive a deterministic locally-administered MAC from the tap name, with `--mac` as an optional override.
 
 ### 5. DHCP versus static as the default
 
@@ -513,7 +513,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   bridged VMs.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — static `/30` point-to-point, guest IP set via the kernel `ip=` cmdline; DHCP/IPAM deferred to the control plane.
 
 ### 6. Where connectivity setup lives
 
@@ -523,7 +523,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
 - **b.** Build tap/NAT setup into naos itself as a privileged setup phase now.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — an external `just` recipe + `scripts/` helper creates the tap and NAT; naos attaches to the tap fd, keeping `CAP_NET_ADMIN` out of the VMM (privileged setup later moves into the jailer, [[0010-guest-isolation-jailer]]).
 
 ### 7. CI capability for the SSH test
 
@@ -533,7 +533,7 @@ Approved. Option **a** is the recommendation; **b** onward are alternatives;
   `CAP_NET_ADMIN`.
 - **other.** *(write-in)*
 
-**Decision:** *pending*
+**Decision:** a — keep the SSH end-to-end test a documented manual / self-hosted gate (needs /dev/kvm + tap + a booting VM), consistent with the KVM-gated tests.
 
 ## References
 
