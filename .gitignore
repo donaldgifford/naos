@@ -1,6 +1,9 @@
 # Build output
 /target
 
+# Coverage reports (cargo-llvm-cov writes lcov.info; HTML goes under target/)
+/lcov.info
+
 # Test artifacts (see DEVELOPMENT.md — test kernels are built locally, not committed)
 /testdata
 

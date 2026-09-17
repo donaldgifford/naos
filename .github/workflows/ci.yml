@@ -1,0 +1,79 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt / clippy / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # mise provides `just`; rust comes from the rust-toolchain.toml-pinned
+      # toolchain (rustup installs it, with the clippy/rustfmt/llvm-tools
+      # components, on the first cargo invocation).
+      - name: Set up mise (rust, just)
+        uses: jdx/mise-action@v2
+        with:
+          install_args: rust just
+
+      # mise and the rustup shim can resolve to the same version under different
+      # toolchain names, and rustup auto-installs the rust-toolchain.toml
+      # toolchain with only the minimal profile. Add the components explicitly to
+      # whatever toolchain cargo resolves to so fmt/clippy are present.
+      - name: Ensure rust components
+        run: rustup component add rustfmt clippy llvm-tools
+
+      - name: Format check
+        run: just fmt-check
+
+      - name: Clippy (warnings as errors)
+        run: just lint
+
+      # The KVM-gated unit tests and the boot e2e test skip cleanly when
+      # /dev/kvm is unavailable (as on standard hosted runners), so the suite
+      # stays green here while still exercising every pure-logic path.
+      - name: Tests
+        run: just test
+
+      - name: Build
+        run: just build
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise (rust, just, cargo-llvm-cov)
+        uses: jdx/mise-action@v2
+        with:
+          install_args: rust just aqua:taiki-e/cargo-llvm-cov
+
+      - name: Ensure rust components
+        run: rustup component add rustfmt clippy llvm-tools
+
+      # Hosted runners have no /dev/kvm, so the KVM-gated tests skip and their
+      # lines show as uncovered — this report covers the pure-logic surface.
+      # Full coverage requires KVM access (see DEVELOPMENT.md / `just coverage`).
+      - name: Generate lcov coverage
+        run: just coverage-lcov
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-report
+          path: lcov.info
+          if-no-files-found: error
